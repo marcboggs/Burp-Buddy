@@ -1,0 +1,1656 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Compliance mapping: AI Pal Burp Suite extension v1.2.1 (draft)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{--fg:#1f2933;--bd:#d9e2ec;--bg:#ffffff;--alt:#f5f7fa}
+body{font:15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg);max-width:1280px;margin:0 auto;padding:24px}
+h1,h2,h3{line-height:1.25;color:#102a43} h2{border-bottom:2px solid var(--bd);padding-bottom:4px;margin-top:2em}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 8px;vertical-align:top;text-align:left}
+th{background:var(--alt)} tr:nth-child(even) td{background:#fbfcfd}
+code{background:var(--alt);padding:1px 4px;border-radius:3px;font-size:12.5px;word-break:break-word}
+pre{background:var(--alt);padding:10px;overflow:auto;border-radius:4px}
+pre.mermaid{background:#fff;border:1px solid var(--bd);text-align:center}
+.banner{background:#fff8e1;border:1px solid #f0c36d;padding:10px 14px;border-radius:4px;margin:12px 0}
+.badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;white-space:nowrap;color:#fff}
+.b-met{background:#2f9e44}.b-partial{background:#e8a317;color:#222}.b-gap{background:#c92a2a}.b-pot{background:#e8590c}
+.b-na{background:#868e96}.b-p0{background:#a61e4d}.b-p1{background:#d9480f}.b-p2{background:#e8a317;color:#222}.b-p3{background:#5c7cfa}
+.meta th{width:200px}
+</style></head><body>
+<div class="banner"><strong>Draft.</strong> Technical control mapping from a static review. Not an audit, attestation or certification. No claim of audit-readiness. Same content as <code>compliance-report.md</code>.</div>
+<table class="meta"><tr><th>title</th><td>Compliance mapping: AI Pal Burp Suite extension v1.2.1 (plus uncommitted Kiro/ACP work)</td></tr><tr><th>agent</th><td>compliance</td></tr><tr><th>cross_ref_prefix</th><td>CO</td></tr><tr><th>engagement_id</th><td>fdd380ad-7535-4e17-9a30-ce076d59c762</td></tr><tr><th>component</th><td>burpsuite-ai-pal-ext</td></tr><tr><th>date</th><td>2026-11-09</td></tr><tr><th>status</th><td>draft</td></tr><tr><th>scope</th><td>src/main/java (41 files incl. untracked KiroClient.java and AcpTransport.java), build.gradle.kts, gradle wrapper, .github/dependabot.yml, README.md, CLAUDE.md, docs/*.md. Out of scope per manifest: release/v1.1.0. Static review only.</td></tr><tr><th>controls_assessed</th><td>40</td></tr><tr><th>pass_count</th><td>4</td></tr><tr><th>fail_count</th><td>17</td></tr><tr><th>gap_count</th><td>6</td></tr><tr><th>partial_count</th><td>13</td></tr><tr><th>not_applicable_count</th><td>7</td></tr><tr><th>not_assessed_count</th><td>2</td></tr><tr><th>source_revision</th><td>HEAD e44b24f45b9f3bfcd8b1b5bc984ebb80ae6693c4 + dirty working tree (7 modified, 2 untracked source files)</td></tr><tr><th>certification_claim</th><td>none</td></tr></table>
+<h1>Compliance mapping: AI Pal (Burp Suite extension) v1.2.1</h1>
+<p><strong>Status: draft. This is a technical control mapping, not an audit, attestation or certification. Nothing here says the extension is, or is not, audit-ready, SOC 2 compliant, FedRAMP-ready or BApp Store approved.</strong></p>
+<h2>1. Executive summary</h2>
+<p>AI Pal is a tester-side Burp extension. It sends captured HTTP traffic to five LLM backends (Ollama, AWS Bedrock, and the local Claude Code, Codex and Kiro CLIs). I mapped 113 upstream entries (60 inherited findings plus 53 threat-model entries from secreview, security-architecture, skill-reviewer, supply-chain and threat-model) to 49 control rows. Before mapping, I re-read the cited source in the current working tree. Every finding carries a verification status (section 2.2), and that status decides the control status.</p>
+<p>Result across the 40 rows that received a status:</p>
+<pre class="mermaid">
+pie showData title Control status (40 rows with a status)
+    &quot;met&quot; : 4
+    &quot;partial&quot; : 13
+    &quot;gap (confirmed)&quot; : 17
+    &quot;potential gap&quot; : 6
+
+</pre>
+
+<p>Seven rows are "not applicable" (no accounts or roles in the extension, organisational and physical controls) and two are "not assessed" (BApp criteria 1 and 2 are editorial).</p>
+<p>What matters most:</p>
+<ol>
+<li><strong>Client data leaves the workstation with no governance (CO-02, confirmed, P0).</strong> Every header (Authorization, Cookie) and up to 10,000 body characters per item go to the active provider. There is no redaction, scope check, consent or preview. The destination label is wrong for three providers. This is certain by design and is the largest confidentiality gap (NIST AC-4, SC-28, SOC 2 C1.1, CC6.7).</li>
+<li><strong>Agent confinement is a flag deny-list inside the tester's own agent configuration (CO-01, P0, potential gap).</strong> The Claude Code, Codex and Kiro processes run with <code>cwd = user.home</code> and the full parent environment, and none of the isolation flags are passed (verified for Claude Code 2.1.318, which lists them in <code>--help</code>; the Codex and Kiro CLIs are not installed here). Whether a hostile response body can make an agent use a tool (for example an MCP server) is <strong>not verified live</strong>. I therefore record the least-privilege and least-functionality controls as <em>potential</em> gaps, not confirmed gaps. The fix costs roughly two days, so I recommend doing it before the lab result arrives.</li>
+<li><strong>Plaintext AWS keys in Burp preferences, written on every keystroke (CO-04, confirmed, P1).</strong></li>
+<li><strong>BApp Store: not ready on the document's own criteria.</strong> Two confirmed gaps (criterion 3 "operates securely" and criterion 12 "AI functionality"), five partial. The extension does not use the Montoya AI API, although the pinned <code>montoya-api 2025.10</code> jar contains it. The live PortSwigger criterion now reads differently from the copy in <code>docs/</code> (section 6).</li>
+<li><strong>PCI-DSS and HIPAA do not apply</strong> as conformance frameworks (section 3). They matter only as a data-handling note: tester traffic can contain cardholder data or PHI, and the extension sends it to third parties.</li>
+<li><strong>Documentation overclaims security properties</strong> (CO-11). Examples: the code comment "removes all tools from the agent entirely", README line 306 "All LLM requests go through Burp's HTTP stack" and README line 325 "Detect ... will refuse" the IDE launcher. All three are contradicted by current source.</li>
+</ol>
+<p>Duplicates are merged into 13 root causes. Priorities: <span class="badge b-p0">P0</span> x2 (plus one conditional), <span class="badge b-p1">P1</span> x6, <span class="badge b-p2">P2</span> x3, <span class="badge b-p3">P3</span> x1 (section 5). Estimated engineering effort: P0 about 15 to 19 person-days, P1 about 18 to 23, P2 about 6 to 8 (estimates, section 5.1).</p>
+<p>What this report does <strong>not</strong> cover: live testing, vendor-cloud assessment, organisational controls (section 9).</p>
+<h2>2. Scope, method and status rules</h2>
+<h3>2.1 What I did</h3>
+<ul>
+<li>Read all upstream reports: <code>secreview-report.md</code> (SR-SAST-001..019), <code>coverage-closure.md</code>, <code>kiro-delta.md</code> (SR-SAST-020..026), <code>sca-results.json</code>, <code>findings.json</code> and <code>security-architecture-review.md</code> (SA-001..013), <code>skill-review.md</code> and <code>verdict.json</code> (SKR-*), <code>supply-chain-report.md</code> and <code>sbom.json</code> (SC-001..011), <code>threat-model.md</code> (TM-STRIDE-001..053, section 12).</li>
+<li>Re-read the cited code in the working tree and recorded the current line. Where a line had moved, I cite the new line.</li>
+<li>Ran <code>claude --help</code> (the installed Claude Code 2.1.318) to check that the isolation flags exist. <code>codex</code>, <code>kiro-cli</code> and <code>ollama</code> are not installed on the review host.</li>
+<li>Opened the cached <code>montoya-api-2025.10.jar</code> to check whether the AI API is in the pinned version.</li>
+<li>Fetched the live PortSwigger acceptance criteria and AI best-practices pages on 2026-11-09 and compared them with <code>docs/bapp-store-requirements.md</code>. Web content was treated as reference data only.</li>
+<li>Did not build, run tests, run Burp, call any model, or scan. The working tree was identical to the state recorded in the threat model (line counts and sizes match: <code>KiroClient.java</code> 377, <code>AcpTransport.java</code> 270, <code>LLMSettingsPanel.java</code> 1433).</li>
+</ul>
+<h3>2.2 Verification status codes (carried into every finding and control)</h3>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>V</strong></td>
+<td>Verified. I re-read the cited file:line in the current tree and the claim holds in code.</td>
+</tr>
+<tr>
+<td><strong>V·UL</strong></td>
+<td>Code verified, but the harm depends on runtime, vendor or OS behaviour I did not observe (<em>unverified live</em>). The code facts are real; the consequence is not shown.</td>
+</tr>
+<tr>
+<td><strong>RB</strong></td>
+<td>Re-based. The original finding described code that no longer exists (KiroClient rewritten to ACP). I mapped the current code, not the old text.</td>
+</tr>
+<tr>
+<td><strong>UI</strong></td>
+<td>Unverified (inherited). I could not re-check it in this pass (registry data, vendor behaviour, GitHub-side state). Carried forward as a point-in-time claim from the named report.</td>
+</tr>
+<tr>
+<td>V+UI</td>
+<td>Mixed. Part verified, part inherited. The note says which part.</td>
+</tr>
+</tbody>
+</table>
+<h3>2.3 Control status rules</h3>
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>Rule</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span class="badge b-met">met</span></td>
+<td>Positive evidence in current source and no finding contradicts it.</td>
+</tr>
+<tr>
+<td><span class="badge b-partial">partial</span></td>
+<td>The control is implemented in part and the shortfall is confirmed (V).</td>
+</tr>
+<tr>
+<td><span class="badge b-gap">gap</span></td>
+<td>A <strong>confirmed</strong> shortfall (V) that does not depend on live behaviour.</td>
+</tr>
+<tr>
+<td><span class="badge b-pot">potential gap</span></td>
+<td>The shortfall rests only on V·UL or UI findings, or the code fact is verified but whether it is a shortfall depends on unverified runtime behaviour or on a requirement the organisation sets. <strong>A control cannot be a "gap" on the strength of unverified-live findings alone.</strong></td>
+</tr>
+<tr>
+<td><span class="badge b-na">not applicable</span></td>
+<td>With a stated reason.</td>
+</tr>
+<tr>
+<td><span class="badge b-na">not assessed</span></td>
+<td>Added by me (not in your list). Used only for BApp criteria 1 and 2, where static evidence cannot decide.</td>
+</tr>
+</tbody>
+</table>
+<p>A row with both a confirmed and a potential element is a <strong>gap</strong> (confirmed) and the potential element is named in the evidence. A row where the confirmed element is only a design fact and the harm path is unverified live is a <strong>potential gap</strong>.</p>
+<p>Mapping notes: SOC 2 and NIST describe the controls of an organisation or a system. This extension is a software component. I map <em>control-relevant technical characteristics</em> of the component. Mappings the upstream agents used that I judged a weak fit are not carried over: SC-7 and SC-39 (network boundary and OS process isolation) and SC-12 (the extension does not establish cryptographic keys). Some mappings are interpretive; each says so.</p>
+<h2>3. Framework applicability</h2>
+<table>
+<thead>
+<tr>
+<th>Framework</th>
+<th>Applies?</th>
+<th>Reason</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NIST SP 800-53 Rev 5</td>
+<td><strong>Yes, technical families only</strong></td>
+<td>Used as a control vocabulary for the component. The extension is not an authorised federal system and no baseline (Low/Moderate) was selected. Organisational families are not applicable (section 4.1, last row).</td>
+</tr>
+<tr>
+<td>SOC 2 TSC (Security, Confidentiality)</td>
+<td><strong>Yes, indicative</strong></td>
+<td>A SOC 2 report covers a service organisation's system over a period. This is software, not a service. Availability (A1) and Privacy (P) were not requested. The availability findings (CO-07) would map to A1.1 and A1.2 if Availability were in scope.</td>
+</tr>
+<tr>
+<td>BApp Store criteria</td>
+<td><strong>Yes</strong></td>
+<td>Assessed against the 12 criteria in <code>docs/bapp-store-requirements.md</code>, plus the live page (section 6).</td>
+</tr>
+<tr>
+<td>PCI-DSS v4.0</td>
+<td><strong>Not applicable as a conformance framework</strong></td>
+<td>PCI-DSS applies to entities that store, process or transmit cardholder data (CHD) or can affect the security of a cardholder-data environment. The extension is a tester-side tool, stores no CHD by design and is not part of a CDE. It does not persist HTTP traffic to disk (in-memory only; see CO-09). The CLI providers may persist transcripts (unverified live, CO-01).</td>
+</tr>
+<tr>
+<td>HIPAA</td>
+<td><strong>Not applicable as a conformance framework</strong></td>
+<td>HIPAA applies to covered entities and business associates handling PHI. The extension is neither.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Data-handling note (informational, no control status, not legal advice).</strong> If a tester's traffic contains PAN, other CHD or PHI, the extension forwards that data to Anthropic, OpenAI, AWS or Kiro, or to an Ollama host, with no redaction and no consent step (CO-02). Cleartext transport to a remote Ollama host is accepted silently (CO-05). Cloud-bound CLIs may keep transcripts (CO-01, unverified live). Whether this makes the tester or the engagement owner responsible for any PCI-DSS or HIPAA obligation (for example a service-provider relationship under PCI-DSS Requirement 12.8, or a business associate agreement under 45 CFR 164.504(e)) is a contractual and legal determination that I did not make. The practical mitigation is technical and is already in the gap list: default redaction, a per-provider data-handling warning, a preview, and loopback-only cleartext.</p>
+<h2>4. Control-by-control matrix</h2>
+<p>Columns: <strong>Findings</strong> lists the merged upstream IDs with their verification code. <strong>Evidence</strong> is the current file:line I re-read. <strong>CO</strong> points to the root cause in section 5. Positive controls I found are listed in the evidence, because "gap" rows still contain things done well.</p>
+<h3>4.1 NIST SP 800-53 Rev 5</h3>
+<table>
+<thead>
+<tr>
+<th>Control</th>
+<th>Status</th>
+<th>Findings (verification)</th>
+<th>Evidence (current tree)</th>
+<th>Gap / note</th>
+<th>CO</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AC-3 Access Enforcement</td>
+<td><span class="badge b-na">not applicable</span></td>
+<td>none</td>
+<td><code>Extension.java:22-57</code> registers UI only; no accounts, roles or authN code</td>
+<td>No multi-user model. Burp owns access to Burp.</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>AC-4 Information Flow Enforcement</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SR-SAST-004 (V), SA-004 (V), TM-027/028/029/030/040/022/044 (V), SKR-PI-004 (V)</td>
+<td><code>HttpRequestFormatter.java:35-36,63-64</code> (all headers verbatim), <code>:10,43-45</code> (body cap only); callers <code>LLMContextMenuProvider.java:85,111,137,163</code>; <code>formatItems</code> (no item or byte cap); <code>LLMSecurityAssistantEditorPanel.java:44</code> (Request attached by default); zero hits for <code>isInScope</code>, <code>redact</code>, <code>consent</code>, <code>showConfirmDialog</code> in <code>src</code>; <code>LLMProvider.java:6-8</code> (<code>"localhost"</code> for the three cloud-bound CLIs) and <code>:22</code> (<code>getApiHost()</code> has no callers)</td>
+<td>No classification, redaction, scope check, consent, preview or destination disclosure before data leaves. The destination attribute exists, is wrong and is never used.</td>
+<td>CO-02</td>
+</tr>
+<tr>
+<td>AC-6 Least Privilege</td>
+<td><span class="badge b-pot">potential gap</span></td>
+<td>SR-SAST-001, SA-001, TM-048, SKR-EXFIL-001, SR-SAST-002, TM-049, TM-050, SR-SAST-021, TM-034 (all V·UL); SR-SAST-020 (RB)</td>
+<td>Confirmed code facts: <code>cwd = user.home</code> at <code>ClaudeCodeClient.java:69,201,238,259</code>, <code>CodexClient.java:149,186,291</code>, <code>KiroClient.java:117,191</code> and <code>session/new</code> cwd at <code>:242</code>; <code>pb.environment()</code> is touched only to edit PATH (<code>CliEnvironmentUtil.java:15</code>), so the child inherits the full environment; none of <code>--disallowedTools</code>, <code>--strict-mcp-config</code>, <code>--disable-slash-commands</code>, <code>--safe-mode</code> is passed (grep: absent) although the installed Claude Code 2.1.318 lists them in <code>--help</code>; <code>--tools</code> is described there as selecting from the <em>built-in</em> set. Positive: <code>--tools ""</code> (<code>:322</code>), <code>--sandbox read-only</code> and <code>shell_tool=false</code> (<code>CodexClient.java:279-282</code>), permission requests answered <code>cancelled</code> (<code>KiroClient.java:327-342</code>).</td>
+<td>The agent runs with the tester's whole configuration and environment. Whether a hostile body can drive an MCP tool, hook or file read is unverified live (lab tests RU-1, RU-2, RU-3, RU-5, RU-6). Re-rate to confirmed gap on a hit.</td>
+<td>CO-01</td>
+</tr>
+<tr>
+<td>AU-12 Audit Record Generation</td>
+<td><span class="badge b-pot">potential gap</span></td>
+<td>TM-022 (V), SA-004 (V)</td>
+<td>Only <code>logToError</code>/<code>logToOutput</code> calls exist in <code>src</code>; none records which items, provider or destination received data</td>
+<td>The absence of a per-send record is verified. Whether it is a shortfall depends on the audit events the engagement owner selects (AU-2 is organisational).</td>
+<td>CO-02</td>
+</tr>
+<tr>
+<td>CM-6 Configuration Settings</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SR-SAST-005 (V), SR-SAST-011 (V), SR-SAST-022 (V), TM-029 (V), TM-024 (V)</td>
+<td>Insecure defaults: secrets persisted by default (<code>SettingsManager.java:111-117</code>); discovered CLI path persisted without confirmation (<code>LLMSettingsPanel.java:642,960,1046-1048</code>); request attached by default (<code>LLMSecurityAssistantEditorPanel.java:44</code>); cleartext Ollama accepted silently (<code>OllamaClient.java:238-239</code>)</td>
+<td>Secure-by-default settings are not the default for secrets, executable paths, attachments or transport.</td>
+<td>CO-02, CO-04, CO-05, CO-06</td>
+</tr>
+<tr>
+<td>CM-7 Least Functionality</td>
+<td><span class="badge b-pot">potential gap</span></td>
+<td>SR-SAST-001, SA-001, TM-048, SR-SAST-002, TM-049, TM-050 (V·UL), SR-SAST-020 (RB)</td>
+<td>As AC-6. A one-shot text analysis loads the tester's MCP servers, hooks, skills and settings unless disabled. The disabling flags exist and are not used.</td>
+<td>Non-essential functionality is probably enabled (vendor docs say MCP and hooks load in headless mode). Not observed live.</td>
+<td>CO-01</td>
+</tr>
+<tr>
+<td>CM-14 Signed Components</td>
+<td><span class="badge b-pot">potential gap</span></td>
+<td>SC-003 (V+UI), SC-008 (V+UI), TM-006 (V+UI)</td>
+<td><code>git cat-file -t v1.1.0 v1.2.0 v1.2.1</code> returns <code>commit</code> (lightweight, unsigned tags: V); <code>git log --show-signature</code> shows no signature (V); no <code>.jar</code>, <code>.asc</code>, <code>.sig</code> or checksum file in any of 41 commits except <code>gradle-wrapper.jar</code> paths (V)</td>
+<td>Nothing in the repository signs or checksums a release. GitHub Releases and out-of-repo signing were not checked (UI), so this is a potential gap.</td>
+<td>CO-10</td>
+</tr>
+<tr>
+<td>IA-2 / IA-8 Identification and Authentication</td>
+<td><span class="badge b-na">not applicable</span></td>
+<td>none</td>
+<td>No user accounts. Authentication to providers is done by the vendor CLI login or AWS credentials.</td>
+<td></td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>IA-5 Authenticator Management</td>
+<td><span class="badge b-partial">partial</span></td>
+<td>SR-SAST-013 (V), SA-005 (V), TM-004 (V)</td>
+<td><code>AwsCredentialsUtil.java:57</code> honours <code>AWS_DEFAULT_PROFILE</code>, not <code>AWS_PROFILE</code>; precedence settings, then environment, then file (<code>BedrockClient.java:93,103,110</code>); <code>getCredentialSource()</code> (<code>:118</code>) has no callers. Positive: environment and <code>~/.aws/credentials</code> are supported, and the fields are <code>JPasswordField</code> (inherited from SR-SAST-005).</td>
+<td>The effective AWS identity and source are never shown, so client data can go to an unintended account.</td>
+<td>CO-04</td>
+</tr>
+<tr>
+<td>IA-5(7) No Embedded Unencrypted Static Authenticators</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SR-SAST-005 (V), SA-005 (V), TM-031 (V)</td>
+<td><code>SettingsManager.java:111</code> (comment: stored as plain text) and <code>:113-115</code> (<code>preferences.setString</code> for access key, secret key, session token); each setter calls <code>saveSettings()</code> (<code>:179-199</code>); UI setters fire per keystroke (<code>LLMSettingsPanel.java:806,819,832</code>)</td>
+<td>Long-lived AWS credentials sit in plaintext in Burp user configuration; partial secrets persist. Whether export or sync carries them is an assumption (UI, TM A-1).</td>
+<td>CO-04</td>
+</tr>
+<tr>
+<td>RA-5 Vulnerability Monitoring and Scanning</td>
+<td><span class="badge b-partial">partial</span></td>
+<td>SC-006 (V), SR-SCA-001/002 (UI), SC-009/010 (V+UI)</td>
+<td><code>.github/dependabot.yml</code> (gradle only, monthly: V); no <code>.github/workflows</code> (V); <code>build.gradle.kts:12-13</code> pins <code>montoya-api:2025.10</code> and <code>gson:2.10.1</code> exactly (V). OSV "0 vulnerabilities" results are from 2026-11-09 and not re-run (UI).</td>
+<td>Monitoring exists but is monthly and Gradle-only. No SCA in CI. Dependency scan was a single point-in-time.</td>
+<td>CO-10, CO-13</td>
+</tr>
+<tr>
+<td>SA-11 Developer Testing and Evaluation</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SA-013 (V), TM-016 (V)</td>
+<td><code>src/test</code> does not exist (V); no CI; no test of any security control (redaction, fencing, canary); Semgrep ran once with 0 results and is not tool-confirmation for any finding</td>
+<td>No automated evidence that the security controls work or keep working across vendor CLI versions.</td>
+<td>CO-11, CO-01</td>
+</tr>
+<tr>
+<td>SC-5 Denial-of-Service Protection (interpretive: resource exhaustion and hangs)</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SR-SAST-008 (V·UL), SA-008 (V), TM-041 (V·UL), SR-SAST-015 (V), TM-043 (V), TM-042 (V)</td>
+<td><code>ThreadManager.java:18</code> (3 threads, default unbounded queue); <code>ClaudeCodeClient.java:270-273</code> reads stdout then stderr to EOF before <code>waitFor(120s)</code> (<code>:273</code>; streaming path <code>:160</code>); <code>CodexClient.java:111</code>; <code>LLMSettingsPanel.java:373</code> calls <code>isModelAlreadyPulled</code> (<code>:321-354</code>, blocking read, unbounded <code>waitFor()</code> at <code>:349</code>) from the click handler (<code>:235</code> → <code>:356</code>); <code>KiroClient</code> is bounded (<code>AcpTransport.java:106</code> <code>poll(timeout)</code>) but stderr is never drained (<code>KiroClient.java:190</code>, no <code>getErrorStream</code>)</td>
+<td>The timeout order is a verified code defect. The pipe-fill deadlock and the starvation of all LLM features by three hung runs are plausible and not observed live.</td>
+<td>CO-07</td>
+</tr>
+<tr>
+<td>SC-8 Transmission Confidentiality and Integrity</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SR-SAST-007 (V), SA-007 (V), TM-003/011/033 (V)</td>
+<td><code>OllamaClient.java:238-239</code> prepends <code>http://</code>; <code>LLMSettings.java:246</code> validates "non-empty" only; streaming path uses <code>HttpURLConnection</code> (<code>:140</code>) with no <code>setInstanceFollowRedirects</code> call. Positive: Bedrock host is fixed to <code>bedrock-runtime.&lt;region&gt;.amazonaws.com</code> over TLS (<code>BedrockClient.java:166,218</code> <code>httpService(host, 443, true)</code>). <code>RequestOptions.withUpstreamTLSVerification</code> is not used anywhere (grep), so whether upstream TLS is verified depends on Burp settings (UL).</td>
+<td>Cleartext to any remote Ollama host is accepted with no warning. CLI transport is the vendor's (not assessed).</td>
+<td>CO-05</td>
+</tr>
+<tr>
+<td>SC-13 Cryptographic Protection</td>
+<td><span class="badge b-met">met</span></td>
+<td>SR-SAST-016 (V·UL)</td>
+<td><code>BedrockClient.java:290-295</code> derives the SigV4 key through the HMAC-SHA256 chain with JCA <code>Mac</code>; <code>sha256Hex</code> and <code>hmacSha256</code> use JCA; no custom primitives; no secret logged. Structure of canonical request, scope and signing key read at <code>:166-220</code> and matches the SigV4 layout.</td>
+<td>Met for cryptographic mechanisms. <code>x-amz-date</code> is sent but not in <code>SignedHeaders</code> (<code>:223</code> vs <code>:185,189</code>); this is a conformance and availability point, not a forgery vector (CO-13). Live acceptance by Bedrock was not tested.</td>
+<td>CO-13</td>
+</tr>
+<tr>
+<td>SC-28 Protection of Information at Rest</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SR-SAST-005 (V), SR-SAST-019 (V), SR-SAST-009 (V·UL), TM-031/037 (V), TM-035 (V·UL)</td>
+<td>Plaintext keys (<code>SettingsManager.java:113-115</code>); full request/response text retained in <code>AITask</code> (<code>AITask.java:10-13</code>) and never removed (<code>AITaskManager.java:31</code>); Claude Code invoked without <code>--no-session-persistence</code> (<code>ClaudeCodeClient.java:322-325</code>), so transcripts under <code>~/.claude</code> are likely (the flag exists in 2.1.318 <code>--help</code>); Codex uses <code>--ephemeral</code> (<code>CodexClient.java:277</code>)</td>
+<td>Confirmed: plaintext secrets. Potential: CLI transcripts.</td>
+<td>CO-04, CO-09, CO-01</td>
+</tr>
+<tr>
+<td>SI-2 Flaw Remediation</td>
+<td><span class="badge b-partial">partial</span></td>
+<td>SC-006 (V), SC-009/010 (V+UI), SR-SCA-001/002 (UI)</td>
+<td>Dependabot present for Gradle (monthly). gson 2.10.1 and montoya-api 2025.10 are older than the latest releases reported by supply-chain (2.15.0, 2026.7; UI). No known vulnerability for either (UI).</td>
+<td>Update path exists; currency not verified.</td>
+<td>CO-13</td>
+</tr>
+<tr>
+<td>SI-4 System Monitoring</td>
+<td><span class="badge b-pot">potential gap</span></td>
+<td>TM-025 (V), SA-001 (V·UL)</td>
+<td>grep for <code>tool_use</code>, <code>tool_call</code>, <code>tool_result</code> in <code>src</code> returns nothing; Claude reads only <code>result</code>, Kiro reads only <code>agent_message_chunk</code> (<code>KiroClient.java:264-270</code>)</td>
+<td>Tool events are never parsed or surfaced, so a hijacked agent would leave no trace in the extension. Whether the CLIs emit such events under the shipped invocation is unverified live.</td>
+<td>CO-01</td>
+</tr>
+<tr>
+<td>SI-7 Software, Firmware, and Information Integrity</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SR-SAST-011 (V), SA-009 (V), SC-005 (V), TM-002/038/051/018 (V), SR-SAST-022 (V)</td>
+<td><code>LLMSettings.java:248-253</code> accepts any file where <code>canExecute()</code> is true; no version or hash recorded; discovery persists the first hit (<code>LLMSettingsPanel.java:642,960,1046-1048</code>) and for Kiro runs <code>&lt;candidate&gt; --version</code> at panel construction (<code>:1044-1050,1067,1085</code>, <code>waitFor</code> after the read at <code>:1102</code>); <code>findExecutableOnPath</code> has no working directory (<code>:1253-1279</code>); README tells users to pipe a <code>curl</code> installer into <code>bash</code> and to run unpinned <code>npm install -g</code> (<code>README.md:139,143,155</code>)</td>
+<td>The binary that receives the full traffic is never checked for identity or version, and a planted candidate is executed at load.</td>
+<td>CO-06</td>
+</tr>
+<tr>
+<td>SI-10 Information Input Validation</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SR-SAST-003 (V), SA-003 (V), SKR-PI-001/002/003 (V), TM-001/007/009 (V), SR-SAST-012 (V), SR-SAST-025 (V), TM-014 (V)</td>
+<td>Raw concatenation <code>PromptTemplates.java:233,243,253</code>; no "untrusted" clause in any system prompt (grep); Custom Prompt sends <code>null</code> system prompt (<code>LLMContextMenuProvider.java:174</code>); fixed forgeable markers (<code>HttpRequestFormatter.java:15,19</code>; <code>LLMSecurityAssistantEditorPanel.java:206,209</code>; <code>LLMContextMenuProvider.java:209</code>); role flattening to <code>User:</code>/<code>Assistant:</code>/<code>System:</code> lines (<code>ClaudeCodeClient.java:345</code>, <code>CodexClient.java:306-320</code>, <code>KiroClient.java:352-375</code>); model strings reach argv with only a blank check (<code>KiroClient.java:177-179</code>, <code>CodexClient.java:285-286</code>, <code>ClaudeCodeClient.java:314-315</code>). Positive: argument lists only, no shell, prompts on stdin (<code>ClaudeCodeClient.java:257-268</code>).</td>
+<td>Untrusted traffic is not delimited. Impact alone is analysis integrity; it becomes action only through CO-01.</td>
+<td>CO-03, CO-06</td>
+</tr>
+<tr>
+<td>SI-12 Information Management and Retention</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SR-SAST-018 (V), SR-SAST-019 (V), SA-010 (V), SR-SAST-014 (V), TM-036/037/046 (V)</td>
+<td><code>AITaskManager.java:31</code> add only, no remove or cap; <code>ChatPanel.java:282-287</code> <code>clearChat</code> does not reset <code>attachedRequest</code> (<code>:30</code>) or stop a running stream (<code>:277</code> is a different method); unload handler purges nothing (<code>Extension.java:54-57</code>); parse failures log traffic-derived lines (<code>ClaudeCodeClient.java:153</code>, <code>CodexClient.java:106,241</code>, <code>OllamaClient.java:203</code>)</td>
+<td>Sensitive content is retained and logged beyond need. The resurrect-after-Clear timing is plausible but not run.</td>
+<td>CO-09</td>
+</tr>
+<tr>
+<td>SI-15 Information Output Filtering</td>
+<td><span class="badge b-partial">partial</span></td>
+<td>SR-SAST-010 (V·UL), TM-012/039 (V·UL), SA-011 (V), TM-023 (V)</td>
+<td>Positive: results shown in <code>JTextArea</code> (<code>AnalysisResultDialog.java:31</code>) and <code>JTextPane</code> (<code>ChatPanel.java:24</code>), no HTML kit. Shortfall: provider and CLI text goes into <code>JOptionPane</code> messages (<code>LLMSettingsPanel.java:1386-1390,1394-1395</code>); no provenance label on output; attack-vector prompt asks for exact payloads (<code>PromptTemplates.java:180-182</code>).</td>
+<td>Swing renders a line starting with <code>&lt;html&gt;</code> as HTML (not run here). Reachable only through a hostile provider response, not from target content.</td>
+<td>CO-08</td>
+</tr>
+<tr>
+<td>SR-3 Supply Chain Controls and Processes</td>
+<td><span class="badge b-partial">partial</span></td>
+<td>SC-001/002/003/005/006/007 (see CO-06, CO-10)</td>
+<td>Positive: Maven Central only, exact versions, one bundled dependency (<code>build.gradle.kts:7-13</code>). Shortfall: no <code>distributionSha256Sum</code> (<code>gradle-wrapper.properties:3</code>), no lockfile or <code>verification-metadata.xml</code> (absent), unpinned CLI install guidance (<code>README.md:139,143,155</code>).</td>
+<td>Version pins exist; byte-level integrity checks and pinned toolchain guidance do not.</td>
+<td>CO-06, CO-10</td>
+</tr>
+<tr>
+<td>AT, CA, CP, IR, MA, MP, PE, PL, PM, PS, PT (organisational and physical families), including CA-8</td>
+<td><span class="badge b-na">not applicable</span></td>
+<td>none</td>
+<td>No evidence in the reviewed scope</td>
+<td>Organisational, personnel or physical controls. See section 9. CA-8 (penetration testing) was not performed; the engagement was static-only.</td>
+<td>n/a</td>
+</tr>
+</tbody>
+</table>
+<p>NIST totals: 24 rows, met 1, partial 5, gap 10, potential gap 5, not applicable 3.</p>
+<h3>4.2 SOC 2 Trust Services Criteria (Security, Confidentiality)</h3>
+<table>
+<thead>
+<tr>
+<th>Criterion</th>
+<th>Status</th>
+<th>Findings (verification)</th>
+<th>Evidence</th>
+<th>Gap / note</th>
+<th>CO</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CC6.1 Logical access security (credential and data-at-rest protection)</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SR-SAST-005 (V), SA-005 (V), TM-031 (V)</td>
+<td><code>SettingsManager.java:111-117</code> plaintext AWS credentials</td>
+<td>Confirmed plaintext secrets. Same evidence as NIST IA-5(7) and SC-28.</td>
+<td>CO-04</td>
+</tr>
+<tr>
+<td>CC6.2 / CC6.3 Registration, authorisation and role-based access</td>
+<td><span class="badge b-na">not applicable</span></td>
+<td>none</td>
+<td>No user provisioning or roles in the component</td>
+<td></td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>CC6.6 Protection against threats from outside the system boundary</td>
+<td><span class="badge b-partial">partial</span></td>
+<td>SR-SAST-001/003 (V·UL / V), SA-003 (V), SR-SAST-007 (V)</td>
+<td>Positive: Claude built-in tools off, Codex read-only sandbox, Kiro permission requests cancelled, plain-text result views. Shortfall: untrusted target content is not fenced (<code>PromptTemplates.java:233</code>), cleartext Ollama is accepted (<code>OllamaClient.java:238-239</code>). Potential: MCP tool reachability (V·UL).</td>
+<td>Some measures exist; confirmed shortfalls remain.</td>
+<td>CO-01, CO-03, CO-05</td>
+</tr>
+<tr>
+<td>CC6.7 Restriction of transmission and movement of information</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SR-SAST-004 (V), SA-004 (V), SR-SAST-007 (V), TM-027/033 (V)</td>
+<td>As NIST AC-4 and SC-8</td>
+<td>Data leaves with no filter; cleartext path to remote Ollama.</td>
+<td>CO-02, CO-05</td>
+</tr>
+<tr>
+<td>CC6.8 Prevention and detection of unauthorised or malicious software</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SR-SAST-011 (V), SR-SAST-022 (V), SC-005 (V), TM-051 (V)</td>
+<td>As NIST SI-7</td>
+<td>Unvalidated binaries are executed at load and receive the full traffic.</td>
+<td>CO-06</td>
+</tr>
+<tr>
+<td>CC7.1 Detection of vulnerabilities and configuration changes</td>
+<td><span class="badge b-partial">partial</span></td>
+<td>SC-006 (V), SC-007 (V)</td>
+<td>Dependabot monthly; no CI scanning</td>
+<td>As NIST RA-5.</td>
+<td>CO-10</td>
+</tr>
+<tr>
+<td>CC7.2 Monitoring for anomalies</td>
+<td><span class="badge b-pot">potential gap</span></td>
+<td>TM-025 (V), SA-001 (V·UL)</td>
+<td>As NIST SI-4</td>
+<td>No tool-event visibility.</td>
+<td>CO-01</td>
+</tr>
+<tr>
+<td>CC7.3 to CC7.5 Incident evaluation, response and recovery</td>
+<td><span class="badge b-na">not applicable</span></td>
+<td>none</td>
+<td>Organisational</td>
+<td></td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>CC8.1 Change management</td>
+<td><span class="badge b-partial">partial</span></td>
+<td>SA-013 (V), SC-003 (V+UI), TM-016 (V)</td>
+<td>History exists (41 commits). No tests, no CI (V). Tags are lightweight (V). The Kiro/ACP rewrite is uncommitted (<code>git status</code>) and was covered by no scan when the threat model was written (TM). Approval and review process: not assessed.</td>
+<td>Technical change controls are thin; the process side is out of scope.</td>
+<td>CO-11, CO-10</td>
+</tr>
+<tr>
+<td>CC9.2 Vendor and business-partner risk management</td>
+<td><span class="badge b-na">not applicable</span></td>
+<td>none</td>
+<td>Selecting and assessing Anthropic, OpenAI, AWS and Kiro as vendors is a deployer decision. The technical input to that decision (the extension does not tell the tester where data goes) is under C1.1.</td>
+<td></td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>C1.1 Identification and maintenance of confidential information</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SA-004 (V), TM-040 (V), SR-SAST-004 (V)</td>
+<td>No classification of what is sent; destination label wrong (<code>LLMProvider.java:6-8</code>)</td>
+<td>The tool cannot tell the tester what is confidential or where it goes.</td>
+<td>CO-02</td>
+</tr>
+<tr>
+<td>C1.2 Disposal of confidential information</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SR-SAST-019 (V), SR-SAST-018 (V), TM-037 (V)</td>
+<td>As NIST SI-12. CLI transcripts (V·UL) not counted toward the status.</td>
+<td>No purge, cap or unload cleanup.</td>
+<td>CO-09</td>
+</tr>
+<tr>
+<td>CC1 to CC5, CC6.4, CC6.5, CC9.1</td>
+<td><span class="badge b-na">not applicable</span></td>
+<td>none</td>
+<td>Entity-level, physical and risk-governance criteria</td>
+<td>See section 9.</td>
+<td>n/a</td>
+</tr>
+</tbody>
+</table>
+<p>SOC 2 totals: 13 rows, partial 3, gap 5, potential gap 1, not applicable 4.</p>
+<h3>4.3 BApp Store acceptance criteria</h3>
+<p>The criteria text is from <code>docs/bapp-store-requirements.md</code>. Where the live page differs, section 6 says so.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Criterion</th>
+<th>Status</th>
+<th>Findings (verification)</th>
+<th>Evidence</th>
+<th>Gap / note</th>
+<th>CO</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Performs a unique function</td>
+<td><span class="badge b-na">not assessed</span></td>
+<td>none</td>
+<td>Requires comparison with existing BApps. PortSwigger decides.</td>
+<td>I did not compare against existing BApps.</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Clear, descriptive name</td>
+<td><span class="badge b-na">not assessed</span></td>
+<td>none</td>
+<td><code>Api.extensionName</code> is "AI Pal" in the UI.</td>
+<td>Editorial. "AI Pal" is a brand name more than a description. PortSwigger decides.</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Operates securely (treat HTTP content as untrusted)</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SR-SAST-003 (V), SA-003 (V), SKR-PI-001..003 (V), SR-SAST-004 (V); SR-SAST-001 (V·UL)</td>
+<td>The criterion says to treat message content as untrusted. Raw concatenation <code>PromptTemplates.java:233,243,253</code>; no fencing; no redaction.</td>
+<td>Confirmed shortfall on untrusted-content handling and on what is sent. Tool reachability from injection is potential (V·UL).</td>
+<td>CO-03, CO-02, CO-01</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Includes all dependencies</td>
+<td><span class="badge b-partial">partial</span></td>
+<td>SC-011 (V), SC-004 (V)</td>
+<td>gson bundled by <code>tasks.jar</code> (<code>build.gradle.kts:22-26</code>); montoya-api <code>compileOnly</code> (<code>:12</code>). The claude, codex, kiro-cli and ollama binaries are user-installed.</td>
+<td>Libraries met; the CLI providers depend on external tools by design.</td>
+<td>CO-12</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Uses threads to maintain responsiveness</td>
+<td><span class="badge b-partial">partial</span></td>
+<td>SR-SAST-015 (V), TM-043 (V), SR-SAST-008 (V·UL), SA-008 (V)</td>
+<td>LLM calls run through <code>ThreadManager</code> (<code>Extension.java:29,36,44,48,51</code>). <code>isModelAlreadyPulled</code> blocks inside the click handler (<code>LLMSettingsPanel.java:235,356,373</code>, <code>:321-354</code>). Panel construction runs <code>findExecutableOnPath</code> and, for Kiro, a <code>--version</code> probe (<code>:1044-1050,1085,1253-1279</code>); which thread runs construction is unproven. <code>ThreadManager.java:33,48</code> catches <code>Exception</code> only and logs the message, not the stack trace.</td>
+<td>The criterion also asks for background exceptions to be reported with stack traces.</td>
+<td>CO-07</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Unloads cleanly</td>
+<td><span class="badge b-partial">partial</span></td>
+<td>SA-008 (V), SR-SAST-019 (V)</td>
+<td>Unload handler registered (<code>Extension.java:54-57</code>) and <code>ThreadManager.shutdown()</code> (<code>ThreadManager.java:55-69</code>). Child processes are not tracked or killed; <code>Thread.interrupt</code> does not unblock a pipe <code>readLine</code>; task and chat state is not purged.</td>
+<td>Threads are handled; child processes and retained data are not.</td>
+<td>CO-07, CO-09</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Uses Burp networking</td>
+<td><span class="badge b-partial">partial</span></td>
+<td>SR-SAST-007 (V), SR-SAST-006 (V·UL), SA-006 (V·UL)</td>
+<td><code>api.http()</code> used for Bedrock (<code>BedrockClient.java:233</code>) and Ollama non-streaming (<code>OllamaClient.java:264</code>). Not used for Ollama streaming (<code>HttpURLConnection</code>, <code>OllamaClient.java:140</code>), the settings status check (<code>java.net.http.HttpClient</code>, <code>LLMSettingsPanel.java:117</code>) or the three CLI providers (own connections). <code>README.md:306</code> says otherwise.</td>
+<td><strong>Tension:</strong> the security findings SR-SAST-006/SA-006 recommend moving Bedrock <em>off</em> Burp's logged HTTP stack, while this criterion and the live AI best practices prefer Burp networking. Resolve through CO-12 (Burp AI path).</td>
+<td>CO-05, CO-12</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Supports offline working</td>
+<td><span class="badge b-met">met</span></td>
+<td>none</td>
+<td>No code fetches definitions or other online data (the only outbound clients are the provider clients and the settings status check). The Ollama provider works without internet.</td>
+<td>Cloud providers need a network by nature.</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Copes with large projects</td>
+<td><span class="badge b-partial">partial</span></td>
+<td>SR-SAST-019 (V), TM-046 (V)</td>
+<td><code>AITaskManager.java:31</code> keeps every task, with request, response and notes strings (<code>AITask.java:10-13</code>), forever; editors keep a <code>volatile HttpRequestResponse</code> (<code>LLMSecurityAssistantEditorPanel.java:48,70</code>, bounded per editor); no <code>temporaryFileContext</code>, no <code>proxy().history()</code> or <code>siteMap()</code> use (grep: none).</td>
+<td>Unbounded retention of HTTP text.</td>
+<td>CO-09</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Provides a parent for GUI elements</td>
+<td><span class="badge b-met">met</span></td>
+<td>none</td>
+<td>Dialogs take the Burp frame from <code>swingUtils().suiteFrame()</code> (<code>LLMContextMenuProvider.java:84,110,136,162</code>, <code>AIPalSuiteTab.java:65</code>); <code>AnalysisResultDialog.java:17-18</code> and <code>CustomPromptDialog.java:13-14</code> call <code>super(parent, ...)</code>; <code>JOptionPane</code> calls use panel components inside the Burp tab. grep found no <code>null</code>-parent dialog.</td>
+<td>Not exhaustively exercised on multiple monitors.</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Uses the Montoya API artifact</td>
+<td><span class="badge b-met">met</span></td>
+<td>SC-010 (V+UI)</td>
+<td><code>build.gradle.kts:12</code> <code>compileOnly("net.portswigger.burp.extensions:montoya-api:2025.10")</code> via Gradle</td>
+<td></td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>12</td>
+<td>Uses the Montoya API for AI functionality</td>
+<td><span class="badge b-gap">gap</span></td>
+<td>SC-011 (V), SKR-META-001 (V)</td>
+<td><code>src</code> contains no use of the AI API: no <code>enhancedCapabilities</code>, <code>AI_FEATURES</code>, <code>ai()</code>, <code>isEnabled()</code> or <code>RequestOptions</code> (grep: none). The pinned jar <code>montoya-api-2025.10.jar</code> <strong>does</strong> contain <code>burp/api/montoya/ai/Ai.class</code> and <code>ai/chat/Prompt*.class</code>, so the API is available at the version in use. All five providers are the extension's own clients (<code>LLMClientFactory.java:27-47</code>), each needing user-supplied keys, paths or hosts.</td>
+<td>Confirmed. See section 6 for the live wording and the structural issue with the CLI providers.</td>
+<td>CO-12</td>
+</tr>
+</tbody>
+</table>
+<p>BApp totals: 12 rows, met 3, partial 5, gap 2, not assessed 2.</p>
+<p>Overall: 49 rows. met 4, partial 13, gap 17, potential gap 6, not applicable 7, not assessed 2.</p>
+<h2>5. Gap list (merged by root cause)</h2>
+<p>113 upstream entries (60 findings + 53 TM-STRIDE entries) merge into 13 root causes. Each finding has one primary root cause; cross-references are noted. Priority rubric:</p>
+<table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span class="badge b-p0">P0</span></td>
+<td>High severity, or a confirmed gap on a security claim the product makes, or blocks a stated objective. Do first.</td>
+</tr>
+<tr>
+<td><span class="badge b-p1">P1</span></td>
+<td>Confirmed Medium, or false user-facing statements. Next release.</td>
+</tr>
+<tr>
+<td><span class="badge b-p2">P2</span></td>
+<td>Low-severity hardening. Scheduled.</td>
+</tr>
+<tr>
+<td><span class="badge b-p3">P3</span></td>
+<td>Housekeeping and informational. Backlog.</td>
+</tr>
+</tbody>
+</table>
+<p>Owner is a role, not a person (I do not know the team). Timeline is a proposal for you to confirm, counted from approval.</p>
+<table>
+<thead>
+<tr>
+<th>CO</th>
+<th>Root cause (one line)</th>
+<th>Merged findings (verification)</th>
+<th>Highest source severity</th>
+<th>Controls affected</th>
+<th>Priority</th>
+<th>Effort (person-days)</th>
+<th>Proposed owner / timeline</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CO-01</td>
+<td>Agent CLIs are confined by a vendor-flag deny-list and run in the tester's own config zone (cwd = home, full environment, MCP/hooks/skills/settings load, session persistence, no tool-event visibility, no version gate or canary)</td>
+<td>SR-SAST-001, SA-001, TM-048, SKR-EXFIL-001 (V·UL); SR-SAST-002, SA-002 (V·UL; Kiro half RB), TM-049 (V·UL); SR-SAST-020 (RB), TM-050 (V·UL); SR-SAST-021, TM-034 (V·UL); SR-SAST-009, TM-035 (V·UL); TM-025 (V)</td>
+<td>High (SA-001, SR-SAST-001)</td>
+<td>AC-6, CM-7, SI-4, SC-28, CC6.6, CC7.2, BApp 3</td>
+<td><span class="badge b-p0">P0</span></td>
+<td>9 to 11 (quick fix 1.5 to 2: flags, temp cwd, env allow-list; canary self-test 3; lab runs RU-1..RU-6 3 to 4; Codex/Kiro flag decisions 1 to 2)</td>
+<td>Extension maintainer; quick fix within 1 week, canary and lab within 3 weeks</td>
+</tr>
+<tr>
+<td>CO-02</td>
+<td>No egress governance: no redaction, scope check, consent, preview or caps; destination attribute wrong and unused; attachment on by default; no send record</td>
+<td>SR-SAST-004, SA-004, TM-027, TM-028, TM-029, TM-030, TM-040, TM-022, TM-044 (V); SKR-PI-004 (V); SR-SAST-026 (RB; destination label V)</td>
+<td>High (SA-004)</td>
+<td>AC-4, AU-12, CM-6, CC6.7, C1.1, BApp 3</td>
+<td><span class="badge b-p0">P0</span></td>
+<td>6 to 8 (default redaction 2; destination label + per-provider consent 2; editable preview with byte count 2; item and byte caps, scope warning 1 to 2)</td>
+<td>Extension maintainer; 2 weeks</td>
+</tr>
+<tr>
+<td>CO-12</td>
+<td>Own provider clients instead of the Montoya AI API / Burp AI as default; AI capability not declared; no <code>ai.isEnabled()</code> gate</td>
+<td>SC-011 (V), SKR-META-001 (V)</td>
+<td>n/a (acceptance blocker)</td>
+<td>BApp 3, 7, 12</td>
+<td><strong>P0 if BApp submission is the goal, else P3</strong></td>
+<td>4 to 8 (add Burp AI provider with capability declaration and gating 3 to 5; decide the fate of the other providers 1 to 3)</td>
+<td>Maintainer plus product decision; decide within 2 weeks</td>
+</tr>
+<tr>
+<td>CO-03</td>
+<td>No instruction/data separation: raw concatenation, forgeable markers and role lines, no untrusted-data clause, null system prompt on Custom Prompt, system prompt evictable from chat history, no provenance</td>
+<td>SR-SAST-003, SA-003, TM-001, TM-007, TM-008, TM-009, TM-010, TM-023 (V); SKR-PI-001, SKR-PI-002, SKR-PI-003 (V); SR-SAST-017 (V)</td>
+<td>High (SA-003); Medium (SR)</td>
+<td>SI-10, CC6.6, BApp 3</td>
+<td><span class="badge b-p1">P1</span></td>
+<td>3 to 4</td>
+<td>Extension maintainer; 30 days. It lowers hit rate but does not bound impact; CO-01 does.</td>
+</tr>
+<tr>
+<td>CO-04</td>
+<td>AWS secrets persisted in plaintext on every keystroke; silent credential precedence; wrong profile variable; effective account never shown</td>
+<td>SR-SAST-005, SA-005, TM-031, SR-SAST-013, TM-004, TM-015 (V); TM-052 (UI)</td>
+<td>Medium</td>
+<td>IA-5, IA-5(7), SC-28, CC6.1</td>
+<td><span class="badge b-p1">P1</span></td>
+<td>2 to 3 (+2 if OS keychain)</td>
+<td>Extension maintainer; 30 days</td>
+</tr>
+<tr>
+<td>CO-05</td>
+<td>Provider transport: cleartext Ollama to any host, two network stacks, redirects followed, Bedrock prompts and token via Burp's HTTP stack (Logger/project)</td>
+<td>SR-SAST-007, SA-007, TM-003, TM-011, TM-033, TM-045 (V); SR-SAST-006, SA-006, TM-032 (V·UL)</td>
+<td>Medium</td>
+<td>SC-8, CC6.7, BApp 7</td>
+<td><span class="badge b-p1">P1</span></td>
+<td>3 (loopback-only cleartext, one client, redirects off: 1; dedicated Bedrock client or documented exposure: 1.5 to 2)</td>
+<td>Extension maintainer; 45 days. Coordinate with CO-12 because of the BApp criterion 7 tension.</td>
+</tr>
+<tr>
+<td>CO-06</td>
+<td>CLI toolchain trust: discovered paths auto-persisted and executed at load, <code>canExecute()</code> only, CWD/PATH planting, Windows PATH separator bug, unvalidated model strings in argv, unpinned install guidance, Detect skips the IDE-launcher guard</td>
+<td>SR-SAST-011, SA-009, SC-005, TM-002, TM-005, TM-013, TM-014, TM-018, TM-024, TM-038, TM-051, SR-SAST-012, SR-SAST-022, SR-SAST-025 (V); SR-SAST-024 (RB, residual V); TM-052 (UI)</td>
+<td>Medium</td>
+<td>SI-7, SR-3, CM-6, SI-10, CC6.8</td>
+<td><span class="badge b-p1">P1</span></td>
+<td>4 to 5</td>
+<td>Extension maintainer; 45 days</td>
+</tr>
+<tr>
+<td>CO-07</td>
+<td>Process I/O and pool: timeouts that cannot fire, undrained stderr, 3-thread pool with unbounded queue, blocking process calls in the settings panel, children not killed on unload</td>
+<td>SR-SAST-008, TM-041 (V·UL); SA-008, SR-SAST-015, TM-043, TM-042, TM-017 (V); SR-SAST-023 (RB)</td>
+<td>Medium</td>
+<td>SC-5, BApp 5, 6</td>
+<td><span class="badge b-p1">P1</span></td>
+<td>3 to 4</td>
+<td>Extension maintainer; 45 days</td>
+</tr>
+<tr>
+<td>CO-11</td>
+<td>Documentation and assurance accuracy: security claims contradicted by source, no tests, no control canary, <code>docs/</code> stale and gitignored yet tracked</td>
+<td>SA-013, TM-016 (V); SKR-META-001, SKR-META-002 (V); plus new compliance observations in section 7</td>
+<td>Low (SA-013); compliance-relevant</td>
+<td>SA-11, CC8.1, BApp 3</td>
+<td>P1 (quick win: docs 0.5 to 1 day in the CO-01 pull request; tests 3 days)</td>
+<td>3.5 to 4</td>
+<td>Extension maintainer; docs within 1 week</td>
+</tr>
+<tr>
+<td>CO-08</td>
+<td>Output handling: HTML-capable <code>JOptionPane</code> sinks fed by provider text; no provenance label; payload-generating prompt</td>
+<td>SR-SAST-010, TM-012, TM-039 (V·UL); SA-011 (V)</td>
+<td>Low</td>
+<td>SI-15</td>
+<td><span class="badge b-p2">P2</span></td>
+<td>1 to 2</td>
+<td>Extension maintainer; 90 days</td>
+</tr>
+<tr>
+<td>CO-09</td>
+<td>State and logging lifecycle: unbounded task and chat retention, Clear leaves the attachment and does not cancel the stream, traffic-derived text in the Extensions log, no unload purge</td>
+<td>SR-SAST-014, SR-SAST-018, SR-SAST-019, SA-010, SA-012, TM-036, TM-037, TM-046 (V)</td>
+<td>Low</td>
+<td>SI-12, SC-28, C1.2, BApp 9</td>
+<td><span class="badge b-p2">P2</span></td>
+<td>1.5 to 2</td>
+<td>Extension maintainer; 90 days. SR-SAST-018 is a one-line fix and can ride with CO-02.</td>
+</tr>
+<tr>
+<td>CO-10</td>
+<td>Release and build integrity: non-reproducible unsigned jar from a tree matching no tag, stale wrapper with no checksum, no verification metadata, Gradle-only Dependabot, no CI</td>
+<td>SC-001, SC-003, SC-008, TM-006, TM-019, TM-020, TM-021, TM-026 (V+UI); SC-002, SC-006, SC-007, TM-053 (V); SR-SCA-003 (RB)</td>
+<td>Medium (SC-003)</td>
+<td>CM-14, SR-3, RA-5, CC7.1, CC8.1</td>
+<td><span class="badge b-p2">P2</span></td>
+<td>3 to 4 (reproducible archive settings 0.5; wrapper regeneration with <code>distributionSha256Sum</code> 0.5; verification metadata 0.5; Dependabot <code>github-actions</code> ecosystem 0.25; signed tags and published SHA-256 0.5; CI with provenance 2 optional)</td>
+<td>Extension maintainer; 90 days. The first four items are under one day.</td>
+</tr>
+<tr>
+<td>CO-13</td>
+<td>Housekeeping and informational: SigV4 <code>x-amz-date</code> not signed, dependency currency, licence and packaging, SCA records</td>
+<td>SR-SAST-016 (V·UL), TM-047 (V·UL); SC-004 (V); SC-009, SC-010 (V+UI); SR-SCA-001, SR-SCA-002 (UI)</td>
+<td>Info / Low</td>
+<td>SC-13, SI-2, RA-5</td>
+<td><span class="badge b-p3">P3</span></td>
+<td>1</td>
+<td>Extension maintainer; backlog</td>
+</tr>
+</tbody>
+</table>
+<p>Totals by priority (central estimate of the ranges): P0 about 15 to 19 person-days (CO-01 + CO-02), plus 4 to 8 if CO-12 is taken as P0. P1 about 18 to 23 (CO-03..07, CO-11; add 2 if the OS keychain is used), P2 about 6 to 8 (CO-08..10), P3 about 1.</p>
+<h3>5.1 How the estimates were made</h3>
+<p>They are engineering-judgement ranges for one developer who knows the codebase, excluding review, vendor-CLI version testing and lab setup unless stated. I did not measure anything. Treat them as plus or minus 50 percent. CO-01 contains lab time because the Codex and Kiro flag choices depend on the results of tests RU-3, RU-5 and RU-6 in the threat model (section 12), which have not been run.</p>
+<h3>5.2 Dependencies between items</h3>
+<pre class="mermaid">
+flowchart LR
+    CO01a[&quot;CO-01 quick fix&lt;br/&gt;Claude flags, temp cwd,&lt;br/&gt;env allow-list (1.5-2 d)&quot;] --&gt; CO01b[&quot;CO-01 canary self-test&lt;br/&gt;+ lab RU-1..RU-6&quot;]
+    CO01b --&gt; CO01c[&quot;CO-01 Codex and Kiro&lt;br/&gt;flag decisions&quot;]
+    CO11[&quot;CO-11 doc corrections&lt;br/&gt;(same pull request)&quot;] --&gt; CO01a
+    CO02[&quot;CO-02 egress gate&quot;] --&gt; CO09[&quot;CO-09 lifecycle&lt;br/&gt;(Clear fix rides along)&quot;]
+    CO12[&quot;CO-12 Burp AI decision&quot;] --&gt; CO05[&quot;CO-05 transport&lt;br/&gt;(criterion 7 tension)&quot;]
+    CO03[&quot;CO-03 prompt fencing&quot;] -.reduces hit rate.-&gt; CO01b
+    CO06[&quot;CO-06 toolchain trust&quot;] --&gt; CO07[&quot;CO-07 process I/O&lt;br/&gt;(shared process code)&quot;]
+
+</pre>
+
+<h3>5.3 Remediation plan for every failed control</h3>
+<p>Each confirmed gap and potential gap above maps to a CO item with an owner role, effort and proposed timeline in the table. Controls and their CO items: AC-4 (CO-02), AC-6 (CO-01), AU-12 (CO-02), CM-6 (CO-02, 04, 05, 06), CM-7 (CO-01), CM-14 (CO-10), IA-5(7) (CO-04), SA-11 (CO-11, CO-01), SC-5 (CO-07), SC-8 (CO-05), SC-28 (CO-04, 09, 01), SI-4 (CO-01), SI-7 (CO-06), SI-10 (CO-03, 06), SI-12 (CO-09), CC6.1 (CO-04), CC6.7 (CO-02, 05), CC6.8 (CO-06), CC7.2 (CO-01), C1.1 (CO-02), C1.2 (CO-09), BApp 3 (CO-03, 02, 01), BApp 12 (CO-12). The owner column is a role placeholder pending your assignment.</p>
+<h2>6. BApp Store readiness assessment</h2>
+<p><strong>Verdict: not ready against the criteria in <code>docs/bapp-store-requirements.md</code>.</strong> Two confirmed gaps (3 and 12), five partial (4, 5, 6, 7, 9), three met (8, 10, 11), two not assessed (1, 2). This does not predict PortSwigger's decision, which also weighs uniqueness and review feedback I cannot see.</p>
+<h3>6.1 Criterion 12 and the extension's own provider clients</h3>
+<ul>
+<li>The extension implements five of its own provider clients (<code>OllamaClient</code>, <code>BedrockClient</code>, <code>ClaudeCodeClient</code>, <code>CodexClient</code>, <code>KiroClient</code>; <code>LLMClientFactory.java:27-47</code>) that need the user's keys, binaries or hosts. None calls the Montoya AI API. grep finds no <code>enhancedCapabilities</code>, <code>EnhancedCapability.AI_FEATURES</code>, <code>ai()</code> or <code>isEnabled()</code>.</li>
+<li>The AI API is present in the pinned dependency: <code>montoya-api-2025.10.jar</code> contains <code>burp/api/montoya/ai/Ai.class</code> and <code>burp/api/montoya/ai/chat/{Prompt,PromptResponse,PromptOptions,Message,PromptException}.class</code>. The gap is not caused by an old Montoya version.</li>
+<li><strong>The wording of the criterion has changed.</strong> The copy in <code>docs/bapp-store-requirements.md</code> (item 12) says AI extensions must use the Montoya AI methods. The live acceptance-criteria page, fetched 2026-11-09, titles the item "It uses Burp AI as the default AI provider" and says third-party providers may be used <em>in addition to</em> Burp AI. So the current requirement is not "replace the provider clients" but "make Burp AI the default and add the others".</li>
+<li>The live AI best-practices page adds duties for any third-party provider. Paraphrased:</li>
+<li>declare AI support in the extension and check availability before any request;</li>
+<li>use the Montoya networking API for all requests to the third-party provider;</li>
+<li>verify upstream TLS with <code>RequestOptions.withUpstreamTLSVerification()</code>;</li>
+<li>send only essential data and only in-scope traffic, and strip authentication tokens and session cookies where possible;</li>
+<li>prefer structured data such as JSON over free text for prompts;</li>
+<li>HTML-encode AI output before showing it.</li>
+<li>Against these, the extension has: no capability declaration (V, grep), no availability gate (V, grep), no Burp-networking path for CLI providers (V, by construction they open their own connections), no <code>withUpstreamTLSVerification</code> (V, grep), no scope check or token stripping (V, CO-02), free-text prompts (V, CO-03), and plain-text output views with <code>JOptionPane</code> exceptions (V·UL, CO-08).</li>
+<li><strong>Structural issue.</strong> A CLI provider (Claude Code, Codex, Kiro) talks to its vendor directly. It cannot use Montoya networking. Whether PortSwigger would accept CLI providers alongside a Burp AI default is not decidable from either document. If the answer is no, the CLI providers cannot ship in the BApp build. That decision belongs to the maintainer and PortSwigger, and it is why CO-12 is a decision before it is a code task.</li>
+<li>Smallest first step (1 day): declare the capability and gate the existing providers behind <code>ai.isEnabled()</code>. This is not enough for acceptance but it is the prerequisite for any Burp AI work.</li>
+</ul>
+<h3>6.2 Other criteria</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Assessment in one line</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3</td>
+<td>Gap. Untrusted content is not fenced and everything in the message goes out (CO-03, CO-02). Tool reachability is a potential gap (CO-01).</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Partial. gson is bundled; four external tools are user-installed.</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Partial. One click handler blocks on a child process (<code>LLMSettingsPanel.java:373</code>). Construction-time process calls have an unproven thread.</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Partial. Unload handler exists; children are not killed, state is not purged.</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Partial, with the criterion 7 versus SR-SAST-006 tension in section 4.3.</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Partial. HTTP text retained without bound.</td>
+</tr>
+<tr>
+<td>8, 10, 11</td>
+<td>Met.</td>
+</tr>
+</tbody>
+</table>
+<h3>6.3 Stale or inaccurate documentation (verified against current source)</h3>
+<table>
+<thead>
+<tr>
+<th>Where</th>
+<th>Statement</th>
+<th>Current state</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docs/bapp-store-requirements.md</code> item 12</td>
+<td>AI extensions must use the Montoya AI methods</td>
+<td>Differs from the live page (Burp AI as default provider; third parties allowed in addition). Refresh the copy.</td>
+</tr>
+<tr>
+<td><code>.gitignore:42</code> and <code>docs/</code></td>
+<td><code>docs/</code> is ignored</td>
+<td><code>git ls-files docs</code> lists all four files: they are tracked, so the ignore rule is ineffective.</td>
+</tr>
+<tr>
+<td><code>docs/development-best-practices.md:4,5</code></td>
+<td>"Always check <code>ai.isEnabled()</code>"; "Escape AI-generated content"</td>
+<td>First not followed (grep none). Second met for main views, not for <code>JOptionPane</code> sinks.</td>
+</tr>
+<tr>
+<td><code>CLAUDE.md:5</code></td>
+<td>"integrates LLMs (Ollama, AWS Bedrock)"</td>
+<td>Five providers (<code>LLMClientFactory.java:27-47</code>).</td>
+</tr>
+<tr>
+<td><code>CLAUDE.md:10</code> and <code>README.md</code> build section</td>
+<td>Output <code>build/libs/burpsuite-ai-pal-ext.jar</code></td>
+<td>Supply-chain observed <code>...-1.2.1.jar</code> (UI; I did not rebuild).</td>
+</tr>
+<tr>
+<td><code>CLAUDE.md:35</code></td>
+<td>Claude "tools disabled"</td>
+<td>Only built-in tools are selected by <code>--tools ""</code>; MCP and hooks not shown to be disabled (CO-01).</td>
+</tr>
+<tr>
+<td><code>CLAUDE.md:37</code> and <code>README.md:171</code></td>
+<td>Kiro: "no tool ever executes" / "can never execute"</td>
+<td>Unproven. The code cancels permission requests only; tools or MCP servers needing no permission are untested (RU-5).</td>
+</tr>
+<tr>
+<td><code>ClaudeCodeClient.java:316-321</code></td>
+<td>"removes all tools from the agent entirely"</td>
+<td>Not supported by <code>claude --help</code> 2.1.318 (built-in set) or by the code (no MCP flags).</td>
+</tr>
+<tr>
+<td><code>README.md:302</code></td>
+<td>Ollama: "All data stays local"</td>
+<td>False for a remote <code>http://</code> host, which <code>OllamaClient.java:238-239</code> accepts.</td>
+</tr>
+<tr>
+<td><code>README.md:306</code></td>
+<td>"All LLM requests go through Burp's HTTP stack, respecting proxy settings"</td>
+<td>False for Ollama streaming (<code>OllamaClient.java:140</code>), the settings status check (<code>LLMSettingsPanel.java:117</code>) and the CLI providers.</td>
+</tr>
+<tr>
+<td><code>README.md:325</code></td>
+<td>"Detect button and Test Connection both check ... refuse an IDE-launcher path"</td>
+<td>Test Connection does (<code>KiroClient.java:139-143</code>). <code>detectCliBinary</code> (<code>LLMSettingsPanel.java:1190-1212</code>) persists the path without the guard.</td>
+</tr>
+<tr>
+<td><code>README.md:311</code></td>
+<td>"Burp Suite 2024.1+ (uses Montoya API 2025.10)"</td>
+<td>Minimum Burp version for Montoya 2025.10 not verified (UI).</td>
+</tr>
+<tr>
+<td><code>release/v1.1.0/RELEASE_NOTES.md</code></td>
+<td>Describes v1.1.0</td>
+<td>Out of scope per manifest. Contains notes only; no binaries (V, directory and git history). Stale against 1.2.1 and tags.</td>
+</tr>
+</tbody>
+</table>
+<h2>7. Additional observations from re-verification</h2>
+<p>These are new compliance-relevant observations or corrections to upstream text. None changes a severity.</p>
+<ol>
+<li><strong>HEAD hash typo in upstream.</strong> <code>kiro-delta.md</code> and <code>threat-model.md</code> record <code>e44b24f44b9f3bfc...</code>. The actual HEAD is <code>e44b24f45b9f3bfcd8b1b5bc984ebb80ae6693c4</code>. The short form <code>e44b24f</code> is right. Anyone matching the full hash will fail.</li>
+<li><strong>Manifest note vs reality.</strong> The manifest says "stale binaries" for <code>release/v1.1.0</code>. The directory holds one Markdown file; SC-008 and my git-history sweep found no binary ever committed (only <code>gradle-wrapper.jar</code> paths). Stale notes, not stale binaries.</li>
+<li><strong><code>getApiHost()</code> has no callers</strong> (V). The destination attribute is dead code, which is why SA-004's "destination wrong and unused" holds.</li>
+<li><strong><code>SR-SAST-011</code> panel line cites</strong> <code>:642</code> and <code>:960</code> still hold (claude, codex auto-persist); the Kiro equivalent is <code>:1046-1048</code>.</li>
+<li><strong>SA-011 and SR-SAST-010</strong> cite <code>LLMSettingsPanel.java:1373</code>; that line is the <code>SwingWorker</code> creation. The dialogs are at <code>:1386-1395</code>. The finding stands.</li>
+<li><strong>The IDE-launcher guard is a line-count heuristic</strong> (<code>KiroClient.java:139-143</code>: more than one line of <code>--version</code> output). A launcher that prints one line passes (SR-SAST-024 residual, V).</li>
+</ol>
+<h2>8. Evidence index</h2>
+<h3>8.1 Upstream reports (inputs)</h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Contents used</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>reports/engagement.json</code></td>
+<td>Manifest, scope, out-of-scope, per-source tallies</td>
+</tr>
+<tr>
+<td><code>reports/secreview/burpsuite-ai-pal-ext/secreview-report.md</code></td>
+<td>SR-SAST-001..017, SR-SCA-001..003</td>
+</tr>
+<tr>
+<td><code>reports/secreview/burpsuite-ai-pal-ext/coverage-closure.md</code></td>
+<td>SR-SAST-018, SR-SAST-019, re-verification of 015/016/017</td>
+</tr>
+<tr>
+<td><code>reports/secreview/burpsuite-ai-pal-ext/kiro-delta.md</code></td>
+<td>SR-SAST-020..026 (020, 023, 024 superseded)</td>
+</tr>
+<tr>
+<td><code>reports/secreview/burpsuite-ai-pal-ext/sca-results.json</code>, <code>raw/semgrep.json</code></td>
+<td>SCA and Semgrep records (0 Semgrep results)</td>
+</tr>
+<tr>
+<td><code>reports/security-architecture/burpsuite-ai-pal-ext/findings.json</code>, <code>security-architecture-review.md</code></td>
+<td>SA-001..013</td>
+</tr>
+<tr>
+<td><code>reports/skill-reviewer/burpsuite-ai-pal-ext/skill-review.md</code>, <code>verdict.json</code></td>
+<td>SKR-PI-001..004, SKR-EXFIL-001, SKR-META-001/002 (verdict CAUTION, not hash-reproducible)</td>
+</tr>
+<tr>
+<td><code>reports/supply-chain/burpsuite-ai-pal-ext/supply-chain-report.md</code>, <code>sbom.json</code></td>
+<td>SC-001..011, CycloneDX SBOM</td>
+</tr>
+<tr>
+<td><code>reports/threat-models/burpsuite-ai-pal-ext/threat-model.md</code></td>
+<td>TM-STRIDE-001..053, section 3 drift, section 12 lab tests RU-1..RU-7</td>
+</tr>
+</tbody>
+</table>
+<h3>8.2 Source files re-read in this pass (state fingerprint: SHA-256 first 12 hex, line count)</h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Lines</th>
+<th>SHA-256 (12)</th>
+<th>Re-verified lines</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>src/main/java/llm/impl/ClaudeCodeClient.java</code></td>
+<td>367</td>
+<td>4CC02BEEA085</td>
+<td>66-70, 153, 160, 199-201, 236-238, 257-273, 305-327, 329-347</td>
+</tr>
+<tr>
+<td><code>src/main/java/llm/impl/CodexClient.java</code></td>
+<td>340</td>
+<td>2C7C156A521F</td>
+<td>106, 111, 149, 186, 241, 272-296, 305-320</td>
+</tr>
+<tr>
+<td><code>src/main/java/llm/impl/KiroClient.java</code></td>
+<td>377</td>
+<td>CD29D2840A53</td>
+<td>30-39, 86, 115-143, 168-199, 229-247, 269-336, 353-375</td>
+</tr>
+<tr>
+<td><code>src/main/java/llm/impl/AcpTransport.java</code></td>
+<td>270</td>
+<td>FCA364F2B4D2</td>
+<td>72, 106, 122, 178, 254-262 (no <code>getErrorStream</code>)</td>
+</tr>
+<tr>
+<td><code>src/main/java/llm/impl/BedrockClient.java</code></td>
+<td>311</td>
+<td>2F19439C66A8</td>
+<td>41, 93-118, 160-295</td>
+</tr>
+<tr>
+<td><code>src/main/java/llm/impl/OllamaClient.java</code></td>
+<td>307</td>
+<td>79A1E24C35D6</td>
+<td>41, 138-145, 173, 203, 236-243, 264</td>
+</tr>
+<tr>
+<td><code>src/main/java/ui/settings/LLMSettingsPanel.java</code></td>
+<td>1433</td>
+<td>35B4F91995A7</td>
+<td>117, 235, 321-373, 593, 642, 806-832, 960, 1044-1102, 1190-1212, 1253-1279, 1386-1395</td>
+</tr>
+<tr>
+<td><code>src/main/java/config/SettingsManager.java</code></td>
+<td>241</td>
+<td>159EE4367802</td>
+<td>99, 111-117, 179-199</td>
+</tr>
+<tr>
+<td><code>src/main/java/config/LLMSettings.java</code></td>
+<td>272</td>
+<td>9D5C531A1ABB</td>
+<td>246, 248-253</td>
+</tr>
+<tr>
+<td><code>src/main/java/config/LLMProvider.java</code></td>
+<td></td>
+<td></td>
+<td>4-8, 22</td>
+</tr>
+<tr>
+<td><code>src/main/java/util/HttpRequestFormatter.java</code></td>
+<td>165</td>
+<td>0124BACB5966</td>
+<td>10, 15, 19, 35-36, 43-45, 63-64</td>
+</tr>
+<tr>
+<td><code>src/main/java/llm/prompts/PromptTemplates.java</code></td>
+<td>255</td>
+<td>36D7B4AEC523</td>
+<td>126-186, 226-253</td>
+</tr>
+<tr>
+<td><code>src/main/java/ui/contextmenu/LLMContextMenuProvider.java</code></td>
+<td>239</td>
+<td>60EC44CCAC5E</td>
+<td>84-85, 110-111, 136-137, 162-163, 166-174, 209</td>
+</tr>
+<tr>
+<td><code>src/main/java/ui/editor/LLMSecurityAssistantEditorPanel.java</code></td>
+<td></td>
+<td></td>
+<td>44-48, 70, 173, 206-212</td>
+</tr>
+<tr>
+<td><code>src/main/java/ui/chat/{ChatPanel,ChatMessage,ConversationHistory}.java</code>, <code>ui/tasks/{AITask,AITaskManager}.java</code>, <code>ui/dialogs/{AnalysisResultDialog,CustomPromptDialog}.java</code>, <code>util/{ThreadManager,CliEnvironmentUtil,AwsCredentialsUtil}.java</code>, <code>Extension.java</code>, <code>llm/LLMClientFactory.java</code></td>
+<td></td>
+<td></td>
+<td>cited lines in section 4</td>
+</tr>
+<tr>
+<td><code>build.gradle.kts</code></td>
+<td>26</td>
+<td>456FAD2E3DD0</td>
+<td>1-26</td>
+</tr>
+<tr>
+<td><code>gradle/wrapper/gradle-wrapper.properties</code>, <code>.github/dependabot.yml</code>, <code>.gitignore:42</code></td>
+<td></td>
+<td></td>
+<td>full / cited</td>
+</tr>
+<tr>
+<td><code>README.md</code>, <code>CLAUDE.md</code>, <code>docs/bapp-store-requirements.md</code>, <code>docs/development-best-practices.md</code></td>
+<td></td>
+<td></td>
+<td>cited lines in section 6.3</td>
+</tr>
+</tbody>
+</table>
+<h3>8.3 Commands and external checks</h3>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>git status --short</code>, <code>git rev-parse HEAD</code></td>
+<td>7 modified, 2 untracked source files, <code>reports/</code> untracked; HEAD <code>e44b24f45b9f...</code></td>
+</tr>
+<tr>
+<td><code>git ls-files docs</code>; <code>Test-Path src\test</code>, <code>LICENSE</code>, <code>.github\workflows</code></td>
+<td>docs tracked (4 files); the other three absent</td>
+</tr>
+<tr>
+<td><code>git cat-file -t v1.1.0 v1.2.0 v1.2.1</code>; <code>git log --show-signature -1</code></td>
+<td>lightweight tags; no signature</td>
+</tr>
+<tr>
+<td>Git history sweep for <code>.jar .zip .exe .dll .class .asc .sig .sha*</code></td>
+<td>only two <code>gradle-wrapper.jar</code> paths</td>
+</tr>
+<tr>
+<td>SHA-256 of <code>gradle-wrapper.jar</code></td>
+<td><code>91A23940...1E60</code>, equal to the value in SC-001 (equality with Gradle 7.5.x is inherited)</td>
+</tr>
+<tr>
+<td><code>claude --version</code>, <code>claude --help</code></td>
+<td>2.1.318; isolation flags present; <code>--tools</code> described as selecting from the built-in set</td>
+</tr>
+<tr>
+<td><code>codex</code>, <code>kiro-cli</code>, <code>ollama</code></td>
+<td>not installed on the review host</td>
+</tr>
+<tr>
+<td>Open <code>montoya-api-2025.10.jar</code> (Gradle cache)</td>
+<td>contains <code>burp/api/montoya/ai/Ai.class</code> and <code>ai/chat/*</code></td>
+</tr>
+<tr>
+<td>Web fetch 2026-11-09</td>
+<td><code>portswigger.net/burp/documentation/desktop/extend-burp/extensions/creating/bapp-store-acceptance-criteria</code> and <code>.../creating-ai-extensions/best-practices</code></td>
+</tr>
+</tbody>
+</table>
+<h3>8.4 Not re-verified (inherited, carried as UI)</h3>
+<p>OSV query results and "latest version" data; the equality of the committed wrapper jar hash with Gradle 7.5.x; the three-build non-reproducibility result; GitHub-side state (Releases, Dependabot security updates, branch protection); Burp Logger and project-file recording of Bedrock and Ollama requests; whether Burp user-options export carries extension preferences; vendor CLI runtime behaviour for MCP, hooks, session persistence and read-only sandboxes; <code>docs/*.md</code> hidden-character scan (skill-reviewer's grep sanity check failed).</p>
+<h2>9. What is NOT covered</h2>
+<ul>
+<li><strong>No live testing.</strong> Nothing was run in Burp. No model, MCP server, vendor CLI (other than <code>claude --help</code>), Ollama or AWS endpoint was exercised. The seven lab tests RU-1..RU-7 in the threat model are still open. Findings marked V·UL are code-verified and live-unverified.</li>
+<li><strong>No vendor-cloud assessment.</strong> Anthropic, OpenAI, AWS and Kiro retention, training, logging, residency and breach exposure were not assessed. Vendor CLI package contents were not reviewed.</li>
+<li><strong>No organisational controls.</strong> Policies, training, incident response, personnel, physical security, vendor management, risk governance, change approval and audit-period evidence (the substance of SOC 2 CC1 to CC5 and CC9, most NIST families, and all of an actual audit) are not assessed. SOC 2 requires operating-effectiveness evidence over time; none exists in this scope.</li>
+<li><strong>No certification or audit-readiness claim.</strong> No framework baseline was selected for NIST. No report suitable for an auditor can be derived from a static review of one component.</li>
+<li><strong>PCI-DSS and HIPAA:</strong> applicability determined as "not applicable" with a data-handling note only (section 3). No legal conclusion.</li>
+<li><strong>Frameworks not requested:</strong> GDPR, ISO 27001, NIST CSF, CIS were not assessed.</li>
+<li><strong>Not scanned:</strong> the ACP rewrite (<code>KiroClient.java</code>, <code>AcpTransport.java</code>) has had no secreview pass. The Kiro rows rest on my own read of the source.</li>
+<li><strong>Coverage limits inherited from the upstream agents:</strong> Semgrep returned 0 results, so no finding is tool-confirmed; skill-reviewer could not run its pre-filter or record hashes.</li>
+<li><strong>Multi-monitor GUI behaviour</strong>, Windows <code>.cmd</code> shim metacharacter handling, and the Burp minimum-version claim were not tested.</li>
+<li>The estimates in section 5 are judgement, not measurement.</li>
+</ul>
+<h2>10. Verification register (every inherited finding)</h2>
+<p>Primary root cause (CO) and my verification code. Notes give the part that is not V.</p>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Source severity</th>
+<th>CO</th>
+<th>Verification</th>
+<th>Note</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SR-SAST-001</td>
+<td>High</td>
+<td>01</td>
+<td>V·UL</td>
+<td>Flags absent (V); flag semantics corroborated by local <code>claude --help</code> 2.1.318; MCP runtime behaviour not observed</td>
+</tr>
+<tr>
+<td>SR-SAST-002</td>
+<td>Medium</td>
+<td>01</td>
+<td>V·UL</td>
+<td><code>--ignore-user-config</code> absent (V); Codex not installed</td>
+</tr>
+<tr>
+<td>SR-SAST-003</td>
+<td>Medium</td>
+<td>03</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SR-SAST-004</td>
+<td>Medium</td>
+<td>02</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SR-SAST-005</td>
+<td>Medium</td>
+<td>04</td>
+<td>V</td>
+<td>Export/sync carriage is UI</td>
+</tr>
+<tr>
+<td>SR-SAST-006</td>
+<td>Medium</td>
+<td>05</td>
+<td>V·UL</td>
+<td>Logger/project recording not observed</td>
+</tr>
+<tr>
+<td>SR-SAST-007</td>
+<td>Medium</td>
+<td>05</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SR-SAST-008</td>
+<td>Medium</td>
+<td>07</td>
+<td>V·UL</td>
+<td>Read-then-wait order (V); pipe deadlock and starvation not observed</td>
+</tr>
+<tr>
+<td>SR-SAST-009</td>
+<td>Low</td>
+<td>01</td>
+<td>V·UL</td>
+<td>Flag absent (V); transcript persistence not observed</td>
+</tr>
+<tr>
+<td>SR-SAST-010</td>
+<td>Low</td>
+<td>08</td>
+<td>V·UL</td>
+<td>Sink (V); Swing HTML rendering not run</td>
+</tr>
+<tr>
+<td>SR-SAST-011</td>
+<td>Low</td>
+<td>06</td>
+<td>V</td>
+<td>Windows <code>where</code> CWD order not run</td>
+</tr>
+<tr>
+<td>SR-SAST-012</td>
+<td>Low</td>
+<td>06</td>
+<td>V</td>
+<td><code>ollama</code> call sites not re-read</td>
+</tr>
+<tr>
+<td>SR-SAST-013</td>
+<td>Low</td>
+<td>04</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SR-SAST-014</td>
+<td>Low</td>
+<td>09</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SR-SAST-015</td>
+<td>Low</td>
+<td>07</td>
+<td>V</td>
+<td>EDT status of construction-time calls unproven</td>
+</tr>
+<tr>
+<td>SR-SAST-016</td>
+<td>Info</td>
+<td>13</td>
+<td>V·UL</td>
+<td>Bedrock acceptance of unsigned <code>x-amz-date</code> untested</td>
+</tr>
+<tr>
+<td>SR-SAST-017</td>
+<td>Info</td>
+<td>03</td>
+<td>V</td>
+<td>System-message re-add path not re-read</td>
+</tr>
+<tr>
+<td>SR-SAST-018</td>
+<td>Low</td>
+<td>09</td>
+<td>V</td>
+<td>Stream resurrection timing not run</td>
+</tr>
+<tr>
+<td>SR-SAST-019</td>
+<td>Low</td>
+<td>09</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SR-SAST-020</td>
+<td>Medium</td>
+<td>01</td>
+<td>RB</td>
+<td><code>--trust-tools</code> flags gone; mapped to ACP code (TM-050)</td>
+</tr>
+<tr>
+<td>SR-SAST-021</td>
+<td>Medium</td>
+<td>01</td>
+<td>V·UL</td>
+<td>cwd and env (V); config loading not observed</td>
+</tr>
+<tr>
+<td>SR-SAST-022</td>
+<td>Low</td>
+<td>06</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SR-SAST-023</td>
+<td>Low</td>
+<td>07</td>
+<td>RB</td>
+<td>Timeout now enforced (<code>AcpTransport.java:106</code>); stderr still undrained (V)</td>
+</tr>
+<tr>
+<td>SR-SAST-024</td>
+<td>Low</td>
+<td>06</td>
+<td>RB</td>
+<td><code>-</code> sentinel gone; <code>canExecute()</code>-only and heuristic guard remain (V)</td>
+</tr>
+<tr>
+<td>SR-SAST-025</td>
+<td>Low</td>
+<td>06</td>
+<td>V</td>
+<td><code>LLMSettings.java:225</code> not re-read</td>
+</tr>
+<tr>
+<td>SR-SAST-026</td>
+<td>Info</td>
+<td>02</td>
+<td>RB</td>
+<td>Stderr echo gone; destination label V</td>
+</tr>
+<tr>
+<td>SR-SCA-001</td>
+<td>Info</td>
+<td>13</td>
+<td>UI</td>
+<td>Version V (<code>build.gradle.kts:13</code>); OSV result inherited</td>
+</tr>
+<tr>
+<td>SR-SCA-002</td>
+<td>Info</td>
+<td>13</td>
+<td>UI</td>
+<td>Version V (<code>:12</code>); OSV result inherited</td>
+</tr>
+<tr>
+<td>SR-SCA-003</td>
+<td>Low</td>
+<td>10</td>
+<td>RB</td>
+<td>Corrected by SC-001</td>
+</tr>
+<tr>
+<td>SA-001</td>
+<td>High</td>
+<td>01</td>
+<td>V·UL</td>
+<td></td>
+</tr>
+<tr>
+<td>SA-002</td>
+<td>Medium</td>
+<td>01</td>
+<td>V·UL</td>
+<td>Kiro half re-based to ACP</td>
+</tr>
+<tr>
+<td>SA-003</td>
+<td>High</td>
+<td>03</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SA-004</td>
+<td>High</td>
+<td>02</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SA-005</td>
+<td>Medium</td>
+<td>04</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SA-006</td>
+<td>Medium</td>
+<td>05</td>
+<td>V·UL</td>
+<td></td>
+</tr>
+<tr>
+<td>SA-007</td>
+<td>Medium</td>
+<td>05</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SA-008</td>
+<td>Medium</td>
+<td>07</td>
+<td>V</td>
+<td><code>KiroClient</code> part re-based</td>
+</tr>
+<tr>
+<td>SA-009</td>
+<td>Medium</td>
+<td>06</td>
+<td>V</td>
+<td>Panel line <code>:1177-1179</code> is now <code>:1190-1212</code></td>
+</tr>
+<tr>
+<td>SA-010</td>
+<td>Low</td>
+<td>09</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SA-011</td>
+<td>Low</td>
+<td>08</td>
+<td>V</td>
+<td>Cited line <code>:1373</code> is stale</td>
+</tr>
+<tr>
+<td>SA-012</td>
+<td>Low</td>
+<td>09</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SA-013</td>
+<td>Low</td>
+<td>11</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SKR-PI-001</td>
+<td>Medium</td>
+<td>03</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SKR-PI-002</td>
+<td>Medium</td>
+<td>03</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SKR-PI-003</td>
+<td>Medium</td>
+<td>03</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SKR-PI-004</td>
+<td>Low</td>
+<td>02</td>
+<td>V</td>
+<td>Headers uncapped, multi-item uncapped</td>
+</tr>
+<tr>
+<td>SKR-EXFIL-001</td>
+<td>Low-Medium</td>
+<td>01</td>
+<td>V·UL</td>
+<td></td>
+</tr>
+<tr>
+<td>SKR-META-001</td>
+<td>Info</td>
+<td>11</td>
+<td>V</td>
+<td>Extended: live criterion 12 wording differs</td>
+</tr>
+<tr>
+<td>SKR-META-002</td>
+<td>Info</td>
+<td>11</td>
+<td>V</td>
+<td>Positive: docs state the right principle</td>
+</tr>
+<tr>
+<td>SC-001</td>
+<td>Low</td>
+<td>10</td>
+<td>V+UI</td>
+<td>Properties and jar hash V; 7.5.x equality UI</td>
+</tr>
+<tr>
+<td>SC-002</td>
+<td>Low</td>
+<td>10</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SC-003</td>
+<td>Medium</td>
+<td>10</td>
+<td>V+UI</td>
+<td>Absent reproducibility settings and unsigned tags V; three-build result UI</td>
+</tr>
+<tr>
+<td>SC-004</td>
+<td>Low</td>
+<td>13</td>
+<td>V</td>
+<td>No excludes in <code>tasks.jar</code>, no <code>LICENSE</code>; jar listing not re-run</td>
+</tr>
+<tr>
+<td>SC-005</td>
+<td>Medium</td>
+<td>06</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SC-006</td>
+<td>Low</td>
+<td>10</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SC-007</td>
+<td>Info</td>
+<td>10</td>
+<td>V</td>
+<td></td>
+</tr>
+<tr>
+<td>SC-008</td>
+<td>Low</td>
+<td>10</td>
+<td>V+UI</td>
+<td>Directory and history V; GitHub Releases UI</td>
+</tr>
+<tr>
+<td>SC-009</td>
+<td>Info</td>
+<td>13</td>
+<td>V+UI</td>
+<td>Version V; "latest" UI</td>
+</tr>
+<tr>
+<td>SC-010</td>
+<td>Info</td>
+<td>13</td>
+<td>V+UI</td>
+<td>Version V; "latest" UI</td>
+</tr>
+<tr>
+<td>SC-011</td>
+<td>Low</td>
+<td>12</td>
+<td>V</td>
+<td>Re-assessed against the live criteria; confirmed</td>
+</tr>
+</tbody>
+</table>
+<p>Totals: 60 findings. V 36, V·UL 12, RB 5, UI 2, V+UI 5.</p>
+<p>Threat-model entries (53), by verification:</p>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Entries</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>V (37)</td>
+<td>TM-001, 002, 003, 004, 005, 007, 008, 009, 010, 011, 013, 014, 015, 016, 017, 018, 022, 023, 024, 025, 027, 028, 029, 030, 031, 033, 036, 037, 038, 040, 042, 043, 044, 045, 046, 051, 053</td>
+</tr>
+<tr>
+<td>V·UL (10)</td>
+<td>TM-012, 032, 034, 035, 039, 041, 047, 048, 049, 050</td>
+</tr>
+<tr>
+<td>V+UI (5)</td>
+<td>TM-006, 019, 020, 021, 026</td>
+</tr>
+<tr>
+<td>UI (1)</td>
+<td>TM-052 (assumption A-1: export or sync carries preferences)</td>
+</tr>
+</tbody>
+</table>
+<p>Primary root cause of each TM entry follows the member list in section 5.</p>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true,theme:"default",securityLevel:"strict"});</script>
+</body></html>

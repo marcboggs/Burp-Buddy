@@ -1,0 +1,24 @@
+{
+  "skill": "burpsuite-ai-pal-ext (prompt and agent-instruction assets)",
+  "source": "local workspace c:\\TEMP\\burpsuite-ai-pal-ext",
+  "sha256": "UNRECORDED (shell execution denied)",
+  "status": "draft",
+  "verdict": "CAUTION",
+  "gate": "prompt",
+  "score": null,
+  "coverage": {
+    "prefilter": "unavailable (prefilter.py not present)",
+    "deep_scan": "not run",
+    "semantic": "full read of all in-scope files"
+  },
+  "findings": [
+    {"id": "SKR-PI-001", "severity": "MEDIUM", "location": "src/main/java/llm/prompts/PromptTemplates.java:226-254", "summary": "Untrusted HTTP content concatenated raw; no delimiting, no untrusted-data clause in any system prompt (lines 18-224)."},
+    {"id": "SKR-PI-002", "severity": "MEDIUM", "location": "src/main/java/llm/impl/ClaudeCodeClient.java:329-333; src/main/java/llm/impl/CodexClient.java:305-309", "summary": "System prompt flattened into user text for CLI backends; no role separation; spoofable role markers."},
+    {"id": "SKR-PI-003", "severity": "MEDIUM", "location": "src/main/java/ui/contextmenu/LLMContextMenuProvider.java:173-174; src/main/java/ui/editor/LLMSecurityAssistantEditorPanel.java:195-216", "summary": "Custom Prompt sends null system prompt; editor panel uses spoofable === markers after the user prompt."},
+    {"id": "SKR-PI-004", "severity": "LOW", "location": "src/main/java/util/HttpRequestFormatter.java:10,15,19,125,129", "summary": "Fixed section markers reproducible by attacker content; headers and multi-item totals unbounded."},
+    {"id": "SKR-EXFIL-001", "severity": "LOW-MEDIUM", "location": "src/main/java/llm/impl/ClaudeCodeClient.java:259,316-325; src/main/java/llm/impl/CodexClient.java:279-284,291", "summary": "Tools disabled / read-only sandbox are good mitigations; cwd is user home and MCP/hook/home-read behavior unverified; output rendering not reviewed."},
+    {"id": "SKR-META-001", "severity": "INFO", "location": "CLAUDE.md:5,33-34; docs/bapp-store-requirements.md item 12", "summary": "Docs stale (Claude Code and Codex providers undocumented); Montoya AI API requirement not reflected."},
+    {"id": "SKR-META-002", "severity": "INFO", "location": "docs/bapp-store-requirements.md item 3; docs/development-best-practices.md:3-5", "summary": "Docs state untrusted-content principle that the prompt layer does not yet apply."}
+  ],
+  "hidden_or_obfuscated_content": "none found in mechanically scanned files; docs/*.md scan unverified (grep returned no hits on docs even for a known string)"
+}

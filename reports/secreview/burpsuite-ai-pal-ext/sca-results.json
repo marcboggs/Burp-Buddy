@@ -1,0 +1,32 @@
+[
+  {
+    "package": "com.google.code.gson:gson",
+    "installed_version": "2.10.1",
+    "fixed_version": null,
+    "cve_id": null,
+    "severity": "info",
+    "reachable": true,
+    "finding_ref": "SR-SCA-001",
+    "notes": "Resolves on Maven Central; OSV returned 0 vulns (control query gson 2.8.5 -> GHSA-4jrv-ppp4-jm57 confirmed API works); latest on Central 2.14.0; reachable but no known vulnerability"
+  },
+  {
+    "package": "net.portswigger.burp.extensions:montoya-api",
+    "installed_version": "2025.10",
+    "fixed_version": null,
+    "cve_id": null,
+    "severity": "info",
+    "reachable": false,
+    "finding_ref": "SR-SCA-002",
+    "notes": "Resolves on Maven Central; OSV returned 0 vulns; compileOnly (provided by Burp, not bundled); latest 2026.7"
+  },
+  {
+    "package": "gradle-wrapper (build tooling; gradle-wrapper.jar + gradle-8.12-bin.zip)",
+    "installed_version": "8.12",
+    "fixed_version": null,
+    "cve_id": null,
+    "severity": "low",
+    "reachable": true,
+    "finding_ref": "SR-SCA-003",
+    "notes": "UNVERIFIED: committed wrapper jar sha256 91a239400bb638f36a1795d8fdf7939d532cdc7d794d1119b7261aac158b1e60 does not match published 8.12 checksum or ~25 other sampled releases; no distributionSha256Sum; no dependency verification/locking. Not asserted as tampering. CWE-494"
+  }
+]

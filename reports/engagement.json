@@ -1,0 +1,80 @@
+﻿{
+    "engagement_id":  "fdd380ad-7535-4e17-9a30-ce076d59c762",
+    "created":  "2026-11-09T14:10:47.1057361Z",
+    "type":  "web-app",
+    "targets":  {
+                    "directories":  [
+                                        "./src",
+                                        "./build.gradle.kts",
+                                        "./.github",
+                                        "./CLAUDE.md"
+                                    ],
+                    "urls":  [
+
+                             ],
+                    "specs":  [
+
+                              ],
+                    "iac":  [
+
+                            ]
+                },
+    "out_of_scope":  [
+                         "release/v1.1.0 (contains release notes only; supply-chain verified no binary was ever committed)"
+                     ],
+    "agents_selected":  [
+                            "secreview",
+                            "skill-reviewer",
+                            "security-architecture",
+                            "threat-model",
+                            "supply-chain",
+                            "compliance"
+                        ],
+    "agents_skipped":  {
+                           "pentest-planner":  "no live target (static-only)",
+                           "api-spec-review":  "no specs",
+                           "iac-audit":  "no IaC",
+                           "bughunter":  "no live target"
+                       },
+    "current_phase":  "complete",
+    "quality_gates":  {
+                          "discover":  {
+                                           "status":  "pass",
+                                           "checked_at":  "2026-11-09T14:20:39.7297204Z",
+                                           "note":  "conditional: 10 files pattern-only; closer dispatched"
+                                       },
+                          "analyze":  {
+                                          "status":  "pass",
+                                          "checked_at":  "2026-11-09T15:13:05.2089669Z",
+                                          "note":  "TM 53 entries; all SA High traced; 7 items unverified live (TM section 12)"
+                                      },
+                          "plan":  {
+                                       "status":  "skipped",
+                                       "note":  "no live target; static-only"
+                                   },
+                          "execute":  {
+                                          "status":  "skipped",
+                                          "note":  "no live target; lab validation (RU-1..RU-7) deferred"
+                                      }
+                      },
+    "findings_summary":  {
+                             "medium":  17,
+                             "high":  3,
+                             "low":  21,
+                             "info":  7,
+                             "basis":  "per-source tallies in by_source; High = SA-001/003/004 (architecture rating); not de-duplicated across agents",
+                             "critical":  0
+                         },
+    "by_source":  {
+                      "secreview":  "1H 9M 13L 3I (SR-SAST-001..026; 020/023/024 superseded by ACP rewrite)",
+                      "security_architecture":  "3H 6M 4L (SA-001..013)",
+                      "skill_reviewer":  "3M 2L 2I (SKR-*)",
+                      "supply_chain":  "2M 6L 3I (SC-001..011)",
+                      "threat_model":  "3H 26M 23L 1I (TM-STRIDE-001..053)"
+                  },
+    "report_gate":  {
+                        "status":  "pass-draft",
+                        "checked_at":  "2026-11-09T15:29:26.0692685Z",
+                        "note":  "all artifacts status=draft; 7 items unverified live"
+                    }
+}

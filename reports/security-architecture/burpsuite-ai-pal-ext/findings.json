@@ -1,0 +1,179 @@
+﻿{
+    "title":  "Security Architecture Review - AI Pal v1.2.1",
+    "date":  "2026-11-09",
+    "scope":  "c:\\TEMP\\burpsuite-ai-pal-ext",
+    "agent":  "security-architecture",
+    "status":  "draft",
+    "engagement_id":  "fdd380ad-7535-4e17-9a30-ce076d59c762",
+    "framework":  "OWASP ASVS 4.0.3 + NIST 800-53 r5 + OWASP LLM Top 10 2025",
+    "review_type":  "as-built",
+    "coverage":  {
+                     "files_read_in_full":  22,
+                     "files_total":  40,
+                     "mandated_set":  "15/15"
+                 },
+    "counts":  {
+                   "critical":  0,
+                   "high":  3,
+                   "medium":  6,
+                   "low":  4
+               },
+    "findings":  [
+                     {
+                         "id":  "SA-001",
+                         "category":  "AUTHZ",
+                         "severity":  "High",
+                         "title":  "Claude Code confined by flag deny-list that omits MCP, hooks, settings, session storage; runs in user config zone",
+                         "evidence":  "ClaudeCodeClient.java:305-326; :69,:259; CliEnvironmentUtil.java:14-36",
+                         "framework_mapping":  "LLM06; LLM01; NIST AC-6,CM-7,SC-39; ASVS V1.14.1,V1.14.5",
+                         "corroboration":  "SR-SAST-001; SR-SAST-009; SKR-EXFIL-001",
+                         "status":  "confirmed-in-code",
+                         "recommended_control":  "Harden flags + empty temp cwd + env allow-list + runtime canary; target dedicated profile",
+                         "review_type":  "as-built"
+                     },
+                     {
+                         "id":  "SA-002",
+                         "category":  "AUTHZ",
+                         "severity":  "Medium",
+                         "title":  "Codex read-only sandbox leaves FS readable and loads user config; Kiro only --trust-tools \"\" and unreviewed",
+                         "evidence":  "CodexClient.java:277-291; KiroClient.java:204-217,82,140; LLMClientFactory.java:46-49",
+                         "framework_mapping":  "LLM06; NIST AC-6,SC-39,CM-7; ASVS V1.14.5",
+                         "corroboration":  "SR-SAST-002 (unverified live); Kiro: none",
+                         "status":  "partially-corroborated",
+                         "recommended_control":  "Same isolation plan; add Kiro and Codex to canary; test --ignore-user-config",
+                         "review_type":  "as-built"
+                     },
+                     {
+                         "id":  "SA-003",
+                         "category":  "DEFENSE",
+                         "severity":  "High",
+                         "title":  "No instruction/data separation: raw concat, forgeable roles/markers, no untrusted-data clause, null system on Custom Prompt, system prompt evictable",
+                         "evidence":  "PromptTemplates.java:233,243,253; HttpRequestFormatter.java:15,19,125,129; ChatMessage.java:62-64; ClaudeCodeClient.java:331; CodexClient.java:307; LLMContextMenuProvider.java:174; ConversationHistory.java:28-29,58-59",
+                         "framework_mapping":  "LLM01; LLM07; NIST SI-10,SC-7; ASVS V1.5.1,V1.14.1",
+                         "corroboration":  "SR-SAST-003; SR-SAST-017; SKR-PI-001..004",
+                         "status":  "confirmed-in-code",
+                         "recommended_control":  "Nonce fences + untrusted-data clause + structured channels + assume-compromise via SA-001",
+                         "review_type":  "as-built"
+                     },
+                     {
+                         "id":  "SA-004",
+                         "category":  "DATA",
+                         "severity":  "High",
+                         "title":  "No egress governance: no classification, redaction, minimisation, scope check, consent, preview; destination attribute wrong and unused",
+                         "evidence":  "HttpRequestFormatter.java:36,64,10; LLMContextMenuProvider.java:201-214; LLMSecurityAssistantEditorPanel.java:44; ChatMessage.java:62-64; LLMProvider.java:6-10,22",
+                         "framework_mapping":  "LLM02; ASVS V1.8.1,V1.8.2,V8.3.4; NIST AC-4,SA-9,SI-12",
+                         "corroboration":  "SR-SAST-004; SR-SAST-018",
+                         "status":  "confirmed-in-code",
+                         "recommended_control":  "Provider data-handling tiers + per-project consent + preview + scope check + default redaction",
+                         "review_type":  "as-built"
+                     },
+                     {
+                         "id":  "SA-005",
+                         "category":  "SECRETS",
+                         "severity":  "Medium",
+                         "title":  "AWS keys persisted plaintext per keystroke; silent 3-source precedence; no SDK chain; wrong profile var; source never shown",
+                         "evidence":  "SettingsManager.java:111-117; LLMSettingsPanel.java:806,819,832; BedrockClient.java:91-115,118; AwsCredentialsUtil.java:57",
+                         "framework_mapping":  "LLM02; ASVS V2.10.4,V6.4.1,V1.6.2; NIST IA-5(7),SC-12,SC-28",
+                         "corroboration":  "SR-SAST-005; SR-SAST-013",
+                         "status":  "confirmed-in-code",
+                         "recommended_control":  "Session-memory or OS keychain; opt-in persistence; show account and source before first send",
+                         "review_type":  "as-built"
+                     },
+                     {
+                         "id":  "SA-006",
+                         "category":  "SEGMENT",
+                         "severity":  "Medium",
+                         "title":  "Outbound LLM calls traverse Burp HTTP stack (logged, project-persisted, visible to other extensions); two network paths for Ollama",
+                         "evidence":  "BedrockClient.java:228,233; OllamaClient.java:257-264 vs 138-145",
+                         "framework_mapping":  "LLM02; ASVS V1.14.1,V8.3.4; NIST SC-7,AU-9",
+                         "corroboration":  "SR-SAST-006 (Logger recording unverified live)",
+                         "status":  "confirmed-in-code-partly-unverified",
+                         "recommended_control":  "Dedicated HTTP client outside Burp for all provider calls",
+                         "review_type":  "as-built"
+                     },
+                     {
+                         "id":  "SA-007",
+                         "category":  "EXPOSURE",
+                         "severity":  "Medium",
+                         "title":  "Ollama accepts any host over cleartext http, no auth, redirects followed on streaming path",
+                         "evidence":  "OllamaClient.java:236-241,138-145; LLMSettings.java:246",
+                         "framework_mapping":  "ASVS V9.1.1,V9.2.1,V1.9.1; NIST SC-8,SC-7",
+                         "corroboration":  "SR-SAST-007",
+                         "status":  "confirmed-in-code",
+                         "recommended_control":  "Cleartext only to loopback; otherwise https or explicit confirmation",
+                         "review_type":  "as-built"
+                     },
+                     {
+                         "id":  "SA-008",
+                         "category":  "RESILIENCE",
+                         "severity":  "Medium",
+                         "title":  "Shared 3-thread pool with unbounded queue; CLI timeouts never fire; shutdown leaves children",
+                         "evidence":  "ThreadManager.java:18,33,48,55-70; ClaudeCodeClient.java:270-273,159-160; CodexClient.java:111,246; KiroClient.java:151-154",
+                         "framework_mapping":  "LLM10; NIST SC-5,SC-6",
+                         "corroboration":  "SR-SAST-008; SR-SAST-015 (settings-panel parts inherited)",
+                         "status":  "confirmed-in-code",
+                         "recommended_control":  "Per-feature bulkheads, watchdog timeouts, bounded queue, tracked child processes",
+                         "review_type":  "as-built"
+                     },
+                     {
+                         "id":  "SA-009",
+                         "category":  "SEGMENT",
+                         "severity":  "Medium",
+                         "title":  "CLI tool chain cannot be pinned: no version gate or behaviour check, auto-persisted discovered paths, PATH extended with user-writable dirs, Windows separator bug",
+                         "evidence":  "LLMSettingsPanel.java:642,960,1048,1177-1179; CliEnvironmentUtil.java:21-22,27,29; ClaudeCodeClient.java:193-253; LLMSettings.java:249-253",
+                         "framework_mapping":  "LLM03; NIST SR-3,CM-2,SI-7; ASVS V1.14.3,V14.2.1",
+                         "corroboration":  "SR-SAST-011; SR-SAST-012",
+                         "status":  "confirmed-in-code",
+                         "recommended_control":  "Startup capability canary, minimum version gate, explicit path confirmation",
+                         "review_type":  "as-built"
+                     },
+                     {
+                         "id":  "SA-010",
+                         "category":  "DATA",
+                         "severity":  "Low",
+                         "title":  "Conversation/task state has no lifecycle: Clear leaves attachment, in-flight stream repopulates history, tasks unbounded",
+                         "evidence":  "ChatPanel.java:282-287; AITaskManager.java:31; Extension.java:54-57",
+                         "framework_mapping":  "LLM02; ASVS V8.3.4; NIST SI-12,SC-4",
+                         "corroboration":  "SR-SAST-018; SR-SAST-019",
+                         "status":  "confirmed-in-code",
+                         "recommended_control":  "Single state owner with epoch, cap, purge, unload cleanup",
+                         "review_type":  "as-built"
+                     },
+                     {
+                         "id":  "SA-011",
+                         "category":  "DEFENSE",
+                         "severity":  "Low",
+                         "title":  "No output trust boundary: output treated as authoritative, payload prompt asks for exact payloads, some JOptionPane labels receive server text (plain-text main views are sound)",
+                         "evidence":  "PromptTemplates.java:128; LLMSettingsPanel.java:1373",
+                         "framework_mapping":  "LLM05; LLM09; NIST SI-15; ASVS V1.5.4",
+                         "corroboration":  "SR-SAST-010",
+                         "status":  "confirmed-in-code",
+                         "recommended_control":  "Provenance banner; escape or avoid HTML-capable labels",
+                         "review_type":  "as-built"
+                     },
+                     {
+                         "id":  "SA-012",
+                         "category":  "DATA",
+                         "severity":  "Low",
+                         "title":  "Error/log channels carry client-derived content into Burp Extensions log",
+                         "evidence":  "ClaudeCodeClient.java:153; CodexClient.java:106,241; OllamaClient.java:203",
+                         "framework_mapping":  "ASVS V7.1.2; NIST AU-3,AU-9",
+                         "corroboration":  "SR-SAST-014",
+                         "status":  "confirmed-in-code",
+                         "recommended_control":  "Log length and hash, not content",
+                         "review_type":  "as-built"
+                     },
+                     {
+                         "id":  "SA-013",
+                         "category":  "DEFENSE",
+                         "severity":  "Low",
+                         "title":  "Assurance gap: false \"all tools removed\" claim in comment, no tests/canary for any security control, stale gitignored docs",
+                         "evidence":  "ClaudeCodeClient.java:316-321; no src/test; .gitignore:42",
+                         "framework_mapping":  "ASVS V1.1.x,V1.14.4; NIST SA-11,CA-2",
+                         "corroboration":  "SKR-META-001; SKR-META-002",
+                         "status":  "design-level",
+                         "recommended_control":  "Control tests, runtime canary, correct comment and README",
+                         "review_type":  "as-built"
+                     }
+                 ]
+}

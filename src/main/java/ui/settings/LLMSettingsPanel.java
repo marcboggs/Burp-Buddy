@@ -1,0 +1,1449 @@
+package ui.settings;
+
+import config.LLMProvider;
+import config.LLMSettings;
+import config.SettingsManager;
+import llm.LLMClientFactory;
+import llm.LLMResponse;
+import llm.impl.ClaudeCodeClient;
+import llm.impl.CodexClient;
+import llm.impl.KiroClient;
+import ui.UIStyle;
+import util.AwsCredentialsUtil;
+import util.CliEnvironmentUtil;
+
+import javax.swing.*;
+import java.awt.*;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
+
+public class LLMSettingsPanel extends JPanel {
+    private final SettingsManager settingsManager;
+    private final LLMClientFactory clientFactory;
+
+    private final ButtonGroup providerGroup = new ButtonGroup();
+    private final Map<LLMProvider, JRadioButton> providerButtons = new HashMap<>();
+
+    // Ollama-specific fields
+    private JTextField ollamaBaseUrlField;
+    private JTextField ollamaModelField;
+    private JLabel ollamaStatusLabel;
+    private JButton ollamaStartButton;
+    private JButton ollamaStopButton;
+
+    // Claude Code-specific fields
+    private JTextField claudeCodePathField;
+    private JLabel claudeCodeStatusLabel;
+
+    // Bedrock-specific fields
+    private JPasswordField bedrockAccessKeyField;
+    private JPasswordField bedrockSecretKeyField;
+    private JPasswordField bedrockSessionTokenField;
+    private JComboBox<String> bedrockRegionDropdown;
+    private JLabel bedrockStatusLabel;
+    private JPanel bedrockCredentialsPanel;
+
+    // Codex-specific fields
+    private JTextField codexPathField;
+    private JLabel codexStatusLabel;
+
+    // Kiro CLI-specific fields
+    private JTextField kiroPathField;
+    private JLabel kiroStatusLabel;
+
+    public LLMSettingsPanel(SettingsManager settingsManager, LLMClientFactory clientFactory) {
+        this.settingsManager = settingsManager;
+        this.clientFactory = clientFactory;
+
+        setLayout(new BorderLayout());
+        setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        JPanel mainPanel = new JPanel();
+        mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
+
+        // Title
+        JLabel titleLabel = new JLabel("Burp Buddy Settings");
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 16f));
+        titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        titleLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 15, 0));
+        mainPanel.add(titleLabel);
+
+        // Provider panels
+        mainPanel.add(createOllamaPanel());
+        mainPanel.add(Box.createVerticalStrut(10));
+        mainPanel.add(createClaudeCodePanel());
+        mainPanel.add(Box.createVerticalStrut(10));
+        mainPanel.add(createBedrockPanel());
+        mainPanel.add(Box.createVerticalStrut(10));
+        mainPanel.add(createCodexPanel());
+        mainPanel.add(Box.createVerticalStrut(10));
+        mainPanel.add(createKiroPanel());
+
+        // Set initial selection
+        LLMProvider activeProvider = settingsManager.getActiveProvider();
+        JRadioButton activeButton = providerButtons.get(activeProvider);
+        if (activeButton != null) {
+            activeButton.setSelected(true);
+        }
+
+        add(new JScrollPane(mainPanel), BorderLayout.CENTER);
+
+        // Auto-check connection status on startup
+        checkConnectionStatusAsync();
+    }
+
+    /**
+     * Automatically check connection status when panel loads.
+     */
+    private void checkConnectionStatusAsync() {
+        ollamaStatusLabel.setText("Checking connection...");
+        ollamaStatusLabel.setForeground(Color.GRAY);
+
+        SwingWorker<Boolean, Void> worker = new SwingWorker<>() {
+            private String statusInfo = "";
+
+            @Override
+            protected Boolean doInBackground() {
+                try {
+                    String baseUrl = settingsManager.getOllamaBaseUrl();
+                    // Normalize URL - add http:// if no scheme present
+                    if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+                        baseUrl = "http://" + baseUrl;
+                    }
+                    java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                            .connectTimeout(java.time.Duration.ofSeconds(3))
+                            .build();
+
+                    // First check /api/ps to see what models are currently loaded
+                    java.net.http.HttpRequest psRequest = java.net.http.HttpRequest.newBuilder()
+                            .uri(new java.net.URI(baseUrl + "/api/ps"))
+                            .timeout(java.time.Duration.ofSeconds(5))
+                            .GET()
+                            .build();
+                    java.net.http.HttpResponse<String> psResponse = client.send(psRequest,
+                            java.net.http.HttpResponse.BodyHandlers.ofString());
+
+                    String loadedModel = null;
+                    if (psResponse.statusCode() == 200) {
+                        String psBody = psResponse.body();
+                        // Parse the running model name from /api/ps response
+                        // Format: {"models":[{"name":"llama3.2:latest",...}]}
+                        if (psBody.contains("\"name\"")) {
+                            int nameStart = psBody.indexOf("\"name\"") + 8;
+                            int nameEnd = psBody.indexOf("\"", nameStart);
+                            if (nameEnd > nameStart) {
+                                loadedModel = psBody.substring(nameStart, nameEnd);
+                            }
+                        }
+                    }
+
+                    // Then check /api/tags for available models count
+                    java.net.http.HttpRequest tagsRequest = java.net.http.HttpRequest.newBuilder()
+                            .uri(new java.net.URI(baseUrl + "/api/tags"))
+                            .timeout(java.time.Duration.ofSeconds(5))
+                            .GET()
+                            .build();
+                    java.net.http.HttpResponse<String> tagsResponse = client.send(tagsRequest,
+                            java.net.http.HttpResponse.BodyHandlers.ofString());
+
+                    if (tagsResponse.statusCode() == 200) {
+                        String tagsBody = tagsResponse.body();
+                        int availableCount = tagsBody.split("\"name\"").length - 1;
+
+                        if (loadedModel != null && !loadedModel.isEmpty()) {
+                            statusInfo = "Running: " + loadedModel + " (" + availableCount + " available)";
+                        } else {
+                            statusInfo = "Stopped (" + availableCount + " models available)";
+                        }
+                        return true;
+                    }
+                    return false;
+                } catch (Exception e) {
+                    return false;
+                }
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    if (get()) {
+                        ollamaStatusLabel.setText("Connected - " + statusInfo);
+                        ollamaStatusLabel.setForeground(new Color(0, 150, 0)); // Green
+                    } else {
+                        ollamaStatusLabel.setText("Not connected - Ollama server not reachable");
+                        ollamaStatusLabel.setForeground(new Color(200, 0, 0)); // Red
+                    }
+                } catch (Exception ex) {
+                    ollamaStatusLabel.setText("Not connected - " + ex.getMessage());
+                    ollamaStatusLabel.setForeground(new Color(200, 0, 0)); // Red
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private JPanel createOllamaPanel() {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBorder(UIStyle.createSectionBorder("Ollama (Local)"));
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 220));
+
+        // Radio button row
+        JPanel radioRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        JRadioButton radioButton = new JRadioButton("Use Ollama");
+        radioButton.addActionListener(e -> {
+            if (radioButton.isSelected()) {
+                settingsManager.setActiveProvider(LLMProvider.OLLAMA);
+            }
+        });
+        providerGroup.add(radioButton);
+        providerButtons.put(LLMProvider.OLLAMA, radioButton);
+        radioRow.add(radioButton);
+        radioRow.add(new JLabel("- Run models locally with complete privacy"));
+        radioRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(radioRow);
+
+        // Base URL row
+        JPanel baseUrlRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        baseUrlRow.add(new JLabel("Base URL:"));
+        ollamaBaseUrlField = new JTextField(30);
+        ollamaBaseUrlField.setText(settingsManager.getOllamaBaseUrl());
+        ollamaBaseUrlField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
+            settingsManager.setOllamaBaseUrl(ollamaBaseUrlField.getText());
+        }));
+        baseUrlRow.add(ollamaBaseUrlField);
+        baseUrlRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(baseUrlRow);
+
+        // Model input row
+        JPanel modelRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        modelRow.add(new JLabel("Model:"));
+        ollamaModelField = new JTextField(20);
+        ollamaModelField.setText(settingsManager.getModel(LLMProvider.OLLAMA));
+        ollamaModelField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
+            settingsManager.setModel(LLMProvider.OLLAMA, ollamaModelField.getText());
+        }));
+        modelRow.add(ollamaModelField);
+
+        // Pull model button
+        JButton pullButton = new JButton("Pull Model");
+        pullButton.addActionListener(e -> pullOllamaModel(pullButton));
+        modelRow.add(pullButton);
+        modelRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(modelRow);
+
+        // Server control row
+        JPanel serverRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        serverRow.add(new JLabel("Server:"));
+
+        ollamaStartButton = new JButton("Run Model");
+        ollamaStartButton.addActionListener(e -> startOllamaModel());
+        serverRow.add(ollamaStartButton);
+
+        ollamaStopButton = new JButton("Stop Model");
+        ollamaStopButton.addActionListener(e -> stopOllamaModel());
+        serverRow.add(ollamaStopButton);
+
+        // Refresh status button
+        JButton refreshButton = new JButton("Refresh Status");
+        refreshButton.addActionListener(e -> checkConnectionStatusAsync());
+        serverRow.add(refreshButton);
+
+        serverRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(serverRow);
+
+        // Status row
+        JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        ollamaStatusLabel = new JLabel(" ");
+        ollamaStatusLabel.setFont(ollamaStatusLabel.getFont().deriveFont(Font.ITALIC, 11f));
+        statusRow.add(ollamaStatusLabel);
+        statusRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(statusRow);
+
+        return panel;
+    }
+
+    private String findOllamaExecutable() {
+        // Check common installation paths for ollama
+        String os = System.getProperty("os.name").toLowerCase();
+        String[] possiblePaths;
+
+        if (os.contains("mac")) {
+            possiblePaths = new String[]{
+                    "/usr/local/bin/ollama",
+                    "/opt/homebrew/bin/ollama",
+                    System.getProperty("user.home") + "/.local/bin/ollama"
+            };
+        } else if (os.contains("win")) {
+            String localAppData = System.getenv("LOCALAPPDATA");
+            possiblePaths = new String[]{
+                    (localAppData != null ? localAppData : "") + "\\Programs\\Ollama\\ollama.exe",
+                    "C:\\Program Files\\Ollama\\ollama.exe",
+                    System.getProperty("user.home") + "\\AppData\\Local\\Programs\\Ollama\\ollama.exe"
+            };
+        } else {
+            // Linux
+            possiblePaths = new String[]{
+                    "/usr/local/bin/ollama",
+                    "/usr/bin/ollama",
+                    System.getProperty("user.home") + "/.local/bin/ollama"
+            };
+        }
+
+        for (String path : possiblePaths) {
+            java.io.File file = new java.io.File(path);
+            if (file.exists() && file.canExecute()) {
+                return path;
+            }
+        }
+
+        return null; // Not found
+    }
+
+    private boolean checkOllamaInstalled() {
+        String ollamaPath = findOllamaExecutable();
+        if (ollamaPath == null) {
+            JOptionPane.showMessageDialog(this,
+                    "Ollama is not installed or not in PATH.\n\n" +
+                            "Please install Ollama from: https://ollama.ai/download",
+                    "Ollama Not Found",
+                    JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+        return true;
+    }
+
+    private boolean isModelAlreadyPulled(String ollamaPath, String modelName) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(ollamaPath, "list");
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                // The first column is the model name (e.g., "llama3:8b" or "llama3.2:latest")
+                String[] parts = line.trim().split("\\s+");
+                if (parts.length > 0) {
+                    String listedModel = parts[0].toLowerCase();
+                    String searchModel = modelName.toLowerCase();
+
+                    // Check for exact match or match without tag
+                    if (listedModel.equals(searchModel) ||
+                            listedModel.startsWith(searchModel + ":") ||
+                            (searchModel.contains(":") && listedModel.equals(searchModel.split(":")[0] + ":latest"))) {
+                        return true;
+                    }
+                    // Also check if user specified model without tag and it matches with :latest
+                    if (!searchModel.contains(":") && listedModel.equals(searchModel + ":latest")) {
+                        return true;
+                    }
+                }
+            }
+            process.waitFor();
+        } catch (Exception e) {
+            // If we can't check, assume not pulled
+        }
+        return false;
+    }
+
+    private void pullOllamaModel(JButton button) {
+        if (!checkOllamaInstalled()) {
+            return;
+        }
+
+        String model = ollamaModelField.getText().trim();
+        if (model.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Please enter a model name to pull.",
+                    "Model Required",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        String ollamaPath = findOllamaExecutable();
+
+        // Check if model is already pulled
+        if (isModelAlreadyPulled(ollamaPath, model)) {
+            ollamaStatusLabel.setText("Model '" + model + "' is already available.");
+            JOptionPane.showMessageDialog(this,
+                    "Model '" + model + "' is already pulled.\n\n" +
+                            "Click 'Run Model' to start using it.",
+                    "Model Available",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        button.setEnabled(false);
+        button.setText("Pulling...");
+        ollamaStatusLabel.setText("Pulling " + model + "...");
+        ollamaStatusLabel.setForeground(Color.ORANGE);
+
+        SwingWorker<Boolean, Void> worker = new SwingWorker<>() {
+            private String errorMessage;
+
+            @Override
+            protected Boolean doInBackground() {
+                try {
+                    ProcessBuilder pb = new ProcessBuilder(ollamaPath, "pull", model);
+                    pb.redirectErrorStream(true);
+                    Process process = pb.start();
+                    int exitCode = process.waitFor();
+                    if (exitCode != 0) {
+                        errorMessage = "Pull failed with exit code: " + exitCode;
+                        return false;
+                    }
+                    return true;
+                } catch (Exception e) {
+                    errorMessage = e.getMessage();
+                    return false;
+                }
+            }
+
+            @Override
+            protected void done() {
+                button.setEnabled(true);
+                button.setText("Pull Model");
+                try {
+                    if (get()) {
+                        ollamaStatusLabel.setText("Model '" + model + "' pulled successfully.");
+                        JOptionPane.showMessageDialog(LLMSettingsPanel.this,
+                                "Model '" + model + "' pulled successfully!",
+                                "Success",
+                                JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        ollamaStatusLabel.setText("Failed to pull model.");
+                        JOptionPane.showMessageDialog(LLMSettingsPanel.this,
+                                "Failed to pull model:\n" + errorMessage +
+                                        "\n\nMake sure Ollama is installed and the server is running.",
+                                "Error",
+                                JOptionPane.ERROR_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    ollamaStatusLabel.setText("Failed to pull model.");
+                    JOptionPane.showMessageDialog(LLMSettingsPanel.this,
+                            "Failed to pull model:\n" + ex.getMessage() +
+                                    "\n\nMake sure Ollama is installed and the server is running.",
+                            "Error",
+                            JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private void startOllamaModel() {
+        if (!checkOllamaInstalled()) {
+            return;
+        }
+
+        String model = ollamaModelField.getText().trim();
+        if (model.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Please enter a model name to run.",
+                    "Model Required",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        String ollamaPath = findOllamaExecutable();
+        ollamaStartButton.setEnabled(false);
+        ollamaStatusLabel.setText("Starting " + model + "...");
+        ollamaStatusLabel.setForeground(new Color(0, 150, 0));
+
+        SwingWorker<Boolean, Void> worker = new SwingWorker<>() {
+            private String errorMessage;
+
+            @Override
+            protected Boolean doInBackground() {
+                try {
+                    // Use 'ollama run' which starts the model (and pulls if needed)
+                    // Run in background with keepalive to keep it loaded
+                    ProcessBuilder pb = new ProcessBuilder(ollamaPath, "run", model, "--keepalive", "24h");
+                    pb.redirectErrorStream(true);
+                    Process process = pb.start();
+
+                    // Send empty input and close to exit interactive mode but keep model loaded
+                    process.getOutputStream().close();
+
+                    // Wait for process to initialize (it will keep model loaded due to keepalive)
+                    Thread.sleep(3000);
+                    return true;
+                } catch (Exception e) {
+                    errorMessage = e.getMessage();
+                    return false;
+                }
+            }
+
+            @Override
+            protected void done() {
+                ollamaStartButton.setEnabled(true);
+                try {
+                    if (get()) {
+                        // Refresh connection status to show updated state
+                        checkConnectionStatusAsync();
+                    } else {
+                        ollamaStatusLabel.setText("Failed to start model: " + errorMessage);
+                        ollamaStatusLabel.setForeground(new Color(200, 0, 0));
+                    }
+                } catch (Exception ex) {
+                    ollamaStatusLabel.setText("Failed to start model: " + ex.getMessage());
+                    ollamaStatusLabel.setForeground(new Color(200, 0, 0));
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private void stopOllamaModel() {
+        if (!checkOllamaInstalled()) {
+            return;
+        }
+
+        String model = ollamaModelField.getText().trim();
+        if (model.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Please enter a model name to stop.",
+                    "Model Required",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        String ollamaPath = findOllamaExecutable();
+        ollamaStopButton.setEnabled(false);
+        ollamaStatusLabel.setText("Stopping " + model + "...");
+        ollamaStatusLabel.setForeground(new Color(200, 0, 0));
+
+        SwingWorker<Boolean, Void> worker = new SwingWorker<>() {
+            private String errorMessage;
+
+            @Override
+            protected Boolean doInBackground() {
+                try {
+                    ProcessBuilder pb = new ProcessBuilder(ollamaPath, "stop", model);
+                    pb.redirectErrorStream(true);
+                    Process process = pb.start();
+                    int exitCode = process.waitFor();
+                    if (exitCode != 0) {
+                        errorMessage = "Stop failed with exit code: " + exitCode;
+                        return false;
+                    }
+                    Thread.sleep(2000);
+                    return true;
+                } catch (Exception e) {
+                    errorMessage = e.getMessage();
+                    return false;
+                }
+            }
+
+            @Override
+            protected void done() {
+                ollamaStopButton.setEnabled(true);
+                try {
+                    if (get()) {
+                        // Refresh connection status to show updated state
+                        checkConnectionStatusAsync();
+                    } else {
+                        ollamaStatusLabel.setText("Failed to stop model: " + errorMessage);
+                        ollamaStatusLabel.setForeground(new Color(200, 0, 0));
+                    }
+                } catch (Exception ex) {
+                    ollamaStatusLabel.setText("Failed to stop model: " + ex.getMessage());
+                    ollamaStatusLabel.setForeground(new Color(200, 0, 0));
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private JPanel createClaudeCodePanel() {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBorder(UIStyle.createSectionBorder("Claude Code (CLI)"));
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 420));
+
+        // Radio button row
+        JPanel radioRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        JRadioButton radioButton = new JRadioButton("Use Claude Code");
+        radioButton.addActionListener(e -> {
+            if (radioButton.isSelected()) {
+                settingsManager.setActiveProvider(LLMProvider.CLAUDE_CODE);
+            }
+        });
+        providerGroup.add(radioButton);
+        providerButtons.put(LLMProvider.CLAUDE_CODE, radioButton);
+        radioRow.add(radioButton);
+        radioRow.add(new JLabel("- Run prompts via your local Claude Code CLI installation"));
+        radioRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(radioRow);
+
+        // Path row
+        JPanel pathRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        pathRow.add(new JLabel("Path:"));
+        claudeCodePathField = new JTextField(30);
+        claudeCodePathField.setText(settingsManager.getClaudeCodePath());
+        claudeCodePathField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
+            settingsManager.setClaudeCodePath(claudeCodePathField.getText());
+        }));
+        pathRow.add(claudeCodePathField);
+
+        JButton detectButton = new JButton("Detect");
+        detectButton.addActionListener(e -> detectCliBinary(
+                LLMProvider.CLAUDE_CODE,
+                claudeCodePathField,
+                "claude",
+                "npm install -g @anthropic-ai/claude-code",
+                "Claude Code Not Found"
+        ));
+        pathRow.add(detectButton);
+        pathRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(pathRow);
+
+        // Model row
+        JPanel modelRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        modelRow.add(new JLabel("Model:"));
+        String[] models = LLMSettings.getModelsForProvider(LLMProvider.CLAUDE_CODE);
+        JComboBox<String> modelDropdown = new JComboBox<>(models);
+        modelDropdown.setSelectedItem(settingsManager.getModel(LLMProvider.CLAUDE_CODE));
+        modelDropdown.addActionListener(e -> {
+            String selected = (String) modelDropdown.getSelectedItem();
+            if (selected != null) {
+                settingsManager.setModel(LLMProvider.CLAUDE_CODE, selected);
+            }
+        });
+        modelRow.add(modelDropdown);
+
+        JButton testButton = new JButton("Test Connection");
+        testButton.addActionListener(e -> testClaudeCodeConnection(testButton));
+        modelRow.add(testButton);
+        modelRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(modelRow);
+
+        // Status row
+        JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        claudeCodeStatusLabel = new JLabel(" ");
+        claudeCodeStatusLabel.setFont(claudeCodeStatusLabel.getFont().deriveFont(Font.ITALIC, 11f));
+        statusRow.add(claudeCodeStatusLabel);
+        statusRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(statusRow);
+
+        // Built-in tools are always off; only ticked MCP tools run.
+        panel.add(new ToolPickerPanel(settingsManager::getClaudeCodeAllowedTools,
+                settingsManager::setClaudeCodeAllowedTools,
+                () -> new ClaudeCodeClient(claudeCodePathField.getText().trim(),
+                        settingsManager.getModel(LLMProvider.CLAUDE_CODE)).listMcpTools(),
+                () -> isExecutableFile(claudeCodePathField.getText().trim()) ? null
+                        : "The configured claude path does not exist or is not executable."));
+
+        // Auto-detect path if not set
+        if (settingsManager.getClaudeCodePath() == null || settingsManager.getClaudeCodePath().trim().isEmpty()) {
+            String detected = findClaudeExecutable();
+            if (detected != null) {
+                claudeCodePathField.setText(detected);
+                settingsManager.setClaudeCodePath(detected);
+            }
+        }
+
+        return panel;
+    }
+
+    private String findClaudeExecutable() {
+        return findCliExecutable("claude");
+    }
+
+    private void testClaudeCodeConnection(JButton button) {
+        String path = claudeCodePathField.getText().trim();
+        if (path.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Please configure a path to the claude CLI binary.",
+                    "Configuration Required",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        if (!isExecutableFile(path)) {
+            JOptionPane.showMessageDialog(this,
+                    "The configured claude path does not exist or is not executable.",
+                    "Invalid Claude Path",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        button.setEnabled(false);
+        button.setText("Testing...");
+        claudeCodeStatusLabel.setText("Checking...");
+        claudeCodeStatusLabel.setForeground(Color.GRAY);
+
+        SwingWorker<String, Void> worker = new SwingWorker<>() {
+            @Override
+            protected String doInBackground() {
+                ClaudeCodeClient client = new ClaudeCodeClient(path,
+                        settingsManager.getModel(LLMProvider.CLAUDE_CODE));
+                String version = client.getVersion();
+                if (version != null) {
+                    return version;
+                }
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                button.setEnabled(true);
+                button.setText("Test Connection");
+                try {
+                    String version = get();
+                    if (version != null) {
+                        claudeCodeStatusLabel.setText("Connected - " + version);
+                        claudeCodeStatusLabel.setForeground(new Color(0, 150, 0));
+                        JOptionPane.showMessageDialog(LLMSettingsPanel.this,
+                                "Claude Code CLI detected!\n\n" + version,
+                                "Success",
+                                JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        claudeCodeStatusLabel.setText("Not connected - claude binary not working");
+                        claudeCodeStatusLabel.setForeground(new Color(200, 0, 0));
+                        JOptionPane.showMessageDialog(LLMSettingsPanel.this,
+                                "Failed to connect to Claude Code CLI.\n\n" +
+                                        "Make sure the path is correct and claude is properly installed.",
+                                "Error",
+                                JOptionPane.ERROR_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    claudeCodeStatusLabel.setText("Error: " + ex.getMessage());
+                    claudeCodeStatusLabel.setForeground(new Color(200, 0, 0));
+                    JOptionPane.showMessageDialog(LLMSettingsPanel.this,
+                            "Connection failed:\n" + ex.getMessage(),
+                            "Error",
+                            JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private JPanel createBedrockPanel() {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBorder(UIStyle.createSectionBorder("AWS Bedrock"));
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 380));
+
+        // Radio button row
+        JPanel radioRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        JRadioButton radioButton = new JRadioButton("Use AWS Bedrock");
+        radioButton.addActionListener(e -> {
+            if (radioButton.isSelected()) {
+                settingsManager.setActiveProvider(LLMProvider.BEDROCK);
+            }
+        });
+        providerGroup.add(radioButton);
+        providerButtons.put(LLMProvider.BEDROCK, radioButton);
+        radioRow.add(radioButton);
+        radioRow.add(new JLabel("- Access Claude models via AWS Bedrock"));
+        radioRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(radioRow);
+
+        // Credential status row - shows where credentials are coming from
+        JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        statusRow.add(new JLabel("Credentials:"));
+        bedrockStatusLabel = new JLabel();
+        bedrockStatusLabel.setFont(bedrockStatusLabel.getFont().deriveFont(Font.BOLD, 12f));
+        statusRow.add(bedrockStatusLabel);
+        JButton refreshCredsButton = new JButton("Refresh");
+        refreshCredsButton.addActionListener(e -> updateBedrockCredentialStatus());
+        statusRow.add(refreshCredsButton);
+        statusRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(statusRow);
+
+        // Region row
+        JPanel regionRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        regionRow.add(new JLabel("Region:"));
+        bedrockRegionDropdown = new JComboBox<>(LLMSettings.BEDROCK_REGIONS);
+        bedrockRegionDropdown.setSelectedItem(settingsManager.getBedrockRegion());
+        bedrockRegionDropdown.addActionListener(e -> {
+            String selected = (String) bedrockRegionDropdown.getSelectedItem();
+            if (selected != null) {
+                settingsManager.setBedrockRegion(selected);
+            }
+        });
+        regionRow.add(bedrockRegionDropdown);
+        regionRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(regionRow);
+
+        // Model selection row
+        JPanel modelRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        modelRow.add(new JLabel("Model:"));
+        String[] models = LLMSettings.getModelsForProvider(LLMProvider.BEDROCK);
+        JComboBox<String> modelDropdown = new JComboBox<>(models);
+        modelDropdown.setSelectedItem(settingsManager.getModel(LLMProvider.BEDROCK));
+        modelDropdown.addActionListener(e -> {
+            String selected = (String) modelDropdown.getSelectedItem();
+            if (selected != null) {
+                settingsManager.setModel(LLMProvider.BEDROCK, selected);
+            }
+        });
+        modelRow.add(modelDropdown);
+
+        // Test connection button
+        JButton testButton = new JButton("Test Connection");
+        testButton.addActionListener(e -> testConnection(LLMProvider.BEDROCK, testButton));
+        modelRow.add(testButton);
+        modelRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(modelRow);
+
+        // Collapsible credentials panel
+        bedrockCredentialsPanel = new JPanel();
+        bedrockCredentialsPanel.setLayout(new BoxLayout(bedrockCredentialsPanel, BoxLayout.Y_AXIS));
+        bedrockCredentialsPanel.setBorder(UIStyle.createSectionBorder(
+                "Manual Credentials (Optional - only needed if not using env vars or ~/.aws/credentials)"
+        ));
+        bedrockCredentialsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        // Access Key row
+        JPanel accessKeyRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        accessKeyRow.add(new JLabel("Access Key:"));
+        bedrockAccessKeyField = new JPasswordField(35);
+        bedrockAccessKeyField.setText(settingsManager.getBedrockAccessKey());
+        bedrockAccessKeyField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
+            settingsManager.setBedrockAccessKey(new String(bedrockAccessKeyField.getPassword()));
+            updateBedrockCredentialStatus();
+        }));
+        accessKeyRow.add(bedrockAccessKeyField);
+        accessKeyRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        bedrockCredentialsPanel.add(accessKeyRow);
+
+        // Secret Key row
+        JPanel secretKeyRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        secretKeyRow.add(new JLabel("Secret Key:"));
+        bedrockSecretKeyField = new JPasswordField(35);
+        bedrockSecretKeyField.setText(settingsManager.getBedrockSecretKey());
+        bedrockSecretKeyField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
+            settingsManager.setBedrockSecretKey(new String(bedrockSecretKeyField.getPassword()));
+            updateBedrockCredentialStatus();
+        }));
+        secretKeyRow.add(bedrockSecretKeyField);
+        secretKeyRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        bedrockCredentialsPanel.add(secretKeyRow);
+
+        // Session Token row (optional, for temporary credentials)
+        JPanel sessionTokenRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        sessionTokenRow.add(new JLabel("Session Token:"));
+        bedrockSessionTokenField = new JPasswordField(35);
+        bedrockSessionTokenField.setText(settingsManager.getBedrockSessionToken());
+        bedrockSessionTokenField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
+            settingsManager.setBedrockSessionToken(new String(bedrockSessionTokenField.getPassword()));
+        }));
+        sessionTokenRow.add(bedrockSessionTokenField);
+        sessionTokenRow.add(new JLabel("(optional)"));
+        sessionTokenRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        bedrockCredentialsPanel.add(sessionTokenRow);
+
+        panel.add(bedrockCredentialsPanel);
+
+        // Update credential status on load
+        updateBedrockCredentialStatus();
+
+        return panel;
+    }
+
+    /**
+     * Update the Bedrock credential status label to show where credentials are coming from.
+     */
+    private void updateBedrockCredentialStatus() {
+        // Check explicit settings first
+        String accessKey = settingsManager.getBedrockAccessKey();
+        String secretKey = settingsManager.getBedrockSecretKey();
+        if (!AwsCredentialsUtil.isBlank(accessKey) && !AwsCredentialsUtil.isBlank(secretKey)) {
+            bedrockStatusLabel.setText("Using manual credentials from settings");
+            bedrockStatusLabel.setForeground(new Color(0, 150, 0));
+            return;
+        }
+
+        // Check environment variables
+        if (AwsCredentialsUtil.hasValidEnvCredentials()) {
+            String sessionInfo = System.getenv("AWS_SESSION_TOKEN") != null ? " (with session token)" : "";
+            bedrockStatusLabel.setText("Using environment variables" + sessionInfo);
+            bedrockStatusLabel.setForeground(new Color(0, 150, 0));
+            return;
+        }
+
+        // Check credentials file
+        String profile = AwsCredentialsUtil.getEffectiveProfile();
+        AwsCredentialsUtil.CredentialsResult fileCreds = AwsCredentialsUtil.loadFromFile(profile);
+        if (fileCreds != null && fileCreds.isValid()) {
+            String sessionInfo = fileCreds.sessionToken != null ? " (with session token)" : "";
+            bedrockStatusLabel.setText("Using ~/.aws/credentials [" + profile + "]" + sessionInfo);
+            bedrockStatusLabel.setForeground(new Color(0, 150, 0));
+            return;
+        }
+
+        // No credentials found
+        bedrockStatusLabel.setText("No credentials configured - enter below or set up env vars/credentials file");
+        bedrockStatusLabel.setForeground(new Color(200, 0, 0));
+    }
+
+    private JPanel createCodexPanel() {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBorder(UIStyle.createSectionBorder("OpenAI Codex"));
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 220));
+
+        // Radio button row
+        JPanel radioRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        JRadioButton radioButton = new JRadioButton("Use OpenAI Codex");
+        radioButton.addActionListener(e -> {
+            if (radioButton.isSelected()) {
+                settingsManager.setActiveProvider(LLMProvider.CODEX);
+            }
+        });
+        providerGroup.add(radioButton);
+        providerButtons.put(LLMProvider.CODEX, radioButton);
+        radioRow.add(radioButton);
+        radioRow.add(new JLabel("- Run prompts via your local Codex CLI installation"));
+        radioRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(radioRow);
+
+        // Path row
+        JPanel pathRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        pathRow.add(new JLabel("Path:"));
+        codexPathField = new JTextField(30);
+        codexPathField.setText(settingsManager.getCodexPath());
+        codexPathField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
+            settingsManager.setCodexPath(codexPathField.getText());
+        }));
+        pathRow.add(codexPathField);
+
+        JButton detectButton = new JButton("Detect");
+        detectButton.addActionListener(e -> detectCliBinary(
+                LLMProvider.CODEX,
+                codexPathField,
+                "codex",
+                "npm install -g @openai/codex",
+                "Codex Not Found"
+        ));
+        pathRow.add(detectButton);
+        pathRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(pathRow);
+
+        // Model row
+        JPanel modelRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        modelRow.add(new JLabel("Model:"));
+        String[] models = LLMSettings.getModelsForProvider(LLMProvider.CODEX);
+        JComboBox<String> modelDropdown = new JComboBox<>(models);
+        modelDropdown.setSelectedItem(settingsManager.getModel(LLMProvider.CODEX));
+        modelDropdown.addActionListener(e -> {
+            String selected = (String) modelDropdown.getSelectedItem();
+            if (selected != null) {
+                settingsManager.setModel(LLMProvider.CODEX, selected);
+            }
+        });
+        modelRow.add(modelDropdown);
+
+        JButton testButton = new JButton("Test Connection");
+        testButton.addActionListener(e -> testCodexConnection(testButton));
+        modelRow.add(testButton);
+        modelRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(modelRow);
+
+        // Status row
+        JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        codexStatusLabel = new JLabel(" ");
+        codexStatusLabel.setFont(codexStatusLabel.getFont().deriveFont(Font.ITALIC, 11f));
+        statusRow.add(codexStatusLabel);
+        statusRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(statusRow);
+
+        // Auto-detect path on load if empty
+        if (settingsManager.getCodexPath() == null || settingsManager.getCodexPath().trim().isEmpty()) {
+            String detected = findCodexExecutable();
+            if (detected != null) {
+                codexPathField.setText(detected);
+                settingsManager.setCodexPath(detected);
+            }
+        }
+
+        return panel;
+    }
+
+    private String findCodexExecutable() {
+        return findCliExecutable("codex");
+    }
+
+    private JPanel createKiroPanel() {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBorder(UIStyle.createSectionBorder("Kiro CLI"));
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, 420));
+
+        // Radio button row
+        JPanel radioRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        JRadioButton radioButton = new JRadioButton("Use Kiro CLI");
+        radioButton.addActionListener(e -> {
+            if (radioButton.isSelected()) {
+                settingsManager.setActiveProvider(LLMProvider.KIRO);
+            }
+        });
+        providerGroup.add(radioButton);
+        providerButtons.put(LLMProvider.KIRO, radioButton);
+        radioRow.add(radioButton);
+        radioRow.add(new JLabel("- Run prompts via your local Kiro CLI (kiro-cli) installation"));
+        radioRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(radioRow);
+
+        // Path row
+        JPanel pathRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        pathRow.add(new JLabel("Path:"));
+        kiroPathField = new JTextField(30);
+        kiroPathField.setText(settingsManager.getKiroPath());
+        kiroPathField.getDocument().addDocumentListener(new SimpleDocumentListener(() -> {
+            settingsManager.setKiroPath(kiroPathField.getText());
+        }));
+        pathRow.add(kiroPathField);
+
+        JButton detectButton = new JButton("Detect");
+        detectButton.addActionListener(e -> detectCliBinary(
+                LLMProvider.KIRO,
+                kiroPathField,
+                "kiro-cli",
+                "https://kiro.dev/docs/cli/ (see install instructions)",
+                "Kiro CLI Not Found"
+        ));
+        pathRow.add(detectButton);
+        pathRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(pathRow);
+
+        // Model row
+        JPanel modelRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        modelRow.add(new JLabel("Model:"));
+        String[] models = LLMSettings.getModelsForProvider(LLMProvider.KIRO);
+        JComboBox<String> modelDropdown = new JComboBox<>(models);
+        modelDropdown.setSelectedItem(settingsManager.getModel(LLMProvider.KIRO));
+        modelDropdown.addActionListener(e -> {
+            String selected = (String) modelDropdown.getSelectedItem();
+            if (selected != null) {
+                settingsManager.setModel(LLMProvider.KIRO, selected);
+            }
+        });
+        modelRow.add(modelDropdown);
+
+        JButton testButton = new JButton("Test Connection");
+        testButton.addActionListener(e -> testKiroConnection(testButton));
+        modelRow.add(testButton);
+        modelRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(modelRow);
+
+        // Status row
+        JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        kiroStatusLabel = new JLabel(" ");
+        kiroStatusLabel.setFont(kiroStatusLabel.getFont().deriveFont(Font.ITALIC, 11f));
+        statusRow.add(kiroStatusLabel);
+        statusRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(statusRow);
+
+        // Built-in tools (shell, write, read...) are always refused; only ticked MCP tools run.
+        panel.add(new ToolPickerPanel(settingsManager::getKiroAllowedTools,
+                settingsManager::setKiroAllowedTools,
+                () -> new KiroClient(kiroPathField.getText().trim(),
+                        settingsManager.getModel(LLMProvider.KIRO)).listMcpTools(),
+                () -> isExecutableFile(kiroPathField.getText().trim()) ? null
+                        : "The configured kiro-cli path does not exist or is not executable."));
+
+        // Auto-detect path on load if empty
+        if (settingsManager.getKiroPath() == null || settingsManager.getKiroPath().trim().isEmpty()) {
+            String detected = findKiroExecutable();
+            if (detected != null) {
+                kiroPathField.setText(detected);
+                settingsManager.setKiroPath(detected);
+            }
+        }
+
+        return panel;
+    }
+
+    private String findKiroExecutable() {
+        // IMPORTANT: "kiro-cli" (the headless chat agent documented at
+        // https://kiro.dev/docs/cli/) is a DIFFERENT binary from the Kiro IDE's
+        // own bundled launcher, which is also sometimes named "kiro"/"kiro.cmd"
+        // and lives under the IDE's install directory (e.g.
+        // %LOCALAPPDATA%\Programs\Kiro\bin\kiro.cmd on Windows). That launcher
+        // opens the desktop IDE/Electron app when invoked with CLI args it
+        // doesn't recognize - it must never be auto-detected here. Only the
+        // generic npm/PATH-style search for the exact name "kiro-cli" is used,
+        // and every candidate is verified by isLikelyKiroCliBinary() before
+        // being accepted.
+        String candidate = findCliExecutable("kiro-cli");
+        if (candidate != null && isLikelyKiroCliBinary(candidate)) {
+            return candidate;
+        }
+        return null;
+    }
+
+    /**
+     * Runs `<path> --version` and rejects anything that looks like the Kiro IDE's
+     * bundled launcher (which accepts --version too, but reports Electron/VS
+     * Code-style multi-line output, not a plain kiro-cli version string) rather
+     * than the standalone kiro-cli agent binary.
+     */
+    private boolean isLikelyKiroCliBinary(String path) {
+        try {
+            java.util.List<String> command = new java.util.ArrayList<>();
+            command.add(path);
+            command.add("--version");
+
+            ProcessBuilder pb = new ProcessBuilder(command);
+            pb.redirectErrorStream(true);
+            pb.directory(new File(System.getProperty("user.home")));
+            CliEnvironmentUtil.ensureNodePath(pb);
+
+            Process process = pb.start();
+            String output;
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (sb.length() > 0) sb.append("\n");
+                    sb.append(line);
+                }
+                output = sb.toString();
+            }
+            boolean exited = process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
+            if (!exited) {
+                process.destroyForcibly();
+                return false;
+            }
+            if (process.exitValue() != 0) {
+                return false;
+            }
+            // The Kiro IDE launcher's --version prints three lines: a VS Code-style
+            // semver, a full commit hash, and an architecture string (e.g.
+            // "1.2.4\n22de6f99...\nx64"). kiro-cli's --version is a single line.
+            // Reject the multi-line IDE shape so it is never mistaken for kiro-cli.
+            String[] lines = output.trim().isEmpty() ? new String[0] : output.trim().split("\\r?\\n");
+            return lines.length <= 1;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void testKiroConnection(JButton button) {
+        String path = kiroPathField.getText().trim();
+        if (path.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Please configure a path to the kiro-cli binary.",
+                    "Configuration Required",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        if (!isExecutableFile(path)) {
+            JOptionPane.showMessageDialog(this,
+                    "The configured kiro-cli path does not exist or is not executable.",
+                    "Invalid Kiro CLI Path",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        button.setEnabled(false);
+        button.setText("Testing...");
+        kiroStatusLabel.setText("Checking...");
+        kiroStatusLabel.setForeground(Color.GRAY);
+
+        SwingWorker<String, Void> worker = new SwingWorker<>() {
+            @Override
+            protected String doInBackground() {
+                KiroClient client = new KiroClient(path,
+                        settingsManager.getModel(LLMProvider.KIRO));
+                return client.getVersion();
+            }
+
+            @Override
+            protected void done() {
+                button.setEnabled(true);
+                button.setText("Test Connection");
+                try {
+                    String version = get();
+                    if (version != null) {
+                        kiroStatusLabel.setText("Connected - " + version);
+                        kiroStatusLabel.setForeground(new Color(0, 150, 0));
+                        JOptionPane.showMessageDialog(LLMSettingsPanel.this,
+                                "Kiro CLI detected!\n\n" + version,
+                                "Success",
+                                JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        kiroStatusLabel.setText("Not connected - kiro-cli binary not working");
+                        kiroStatusLabel.setForeground(new Color(200, 0, 0));
+                        JOptionPane.showMessageDialog(LLMSettingsPanel.this,
+                                "Failed to connect to Kiro CLI.\n\n" +
+                                        "Make sure the path points at the standalone kiro-cli agent binary " +
+                                        "(see https://kiro.dev/docs/cli/), not the Kiro IDE's own launcher " +
+                                        "(kiro/kiro.cmd under the IDE's install folder) - those are different " +
+                                        "binaries that share a similar name. Also verify kiro-cli is " +
+                                        "authenticated (see KIRO_API_KEY for headless auth).",
+                                "Error",
+                                JOptionPane.ERROR_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    kiroStatusLabel.setText("Error: " + ex.getMessage());
+                    kiroStatusLabel.setForeground(new Color(200, 0, 0));
+                    JOptionPane.showMessageDialog(LLMSettingsPanel.this,
+                            "Connection failed:\n" + ex.getMessage(),
+                            "Error",
+                            JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private void detectCliBinary(LLMProvider provider,
+                                 JTextField pathField,
+                                 String executableName,
+                                 String installCommand,
+                                 String dialogTitle) {
+        String detected = findCliExecutable(executableName);
+        if (detected != null) {
+            pathField.setText(detected);
+            switch (provider) {
+                case CLAUDE_CODE -> settingsManager.setClaudeCodePath(detected);
+                case CODEX -> settingsManager.setCodexPath(detected);
+                case KIRO -> settingsManager.setKiroPath(detected);
+                default -> {
+                    return;
+                }
+            }
+            return;
+        }
+
+        JOptionPane.showMessageDialog(this,
+                provider.getDisplayName() + " CLI not found.\n\nInstall with: " + installCommand,
+                dialogTitle,
+                JOptionPane.WARNING_MESSAGE);
+    }
+
+    private String findCliExecutable(String executableName) {
+        String os = System.getProperty("os.name").toLowerCase();
+        String home = System.getProperty("user.home");
+        String[] possiblePaths;
+
+        if (os.contains("mac")) {
+            possiblePaths = new String[]{
+                    "/usr/local/bin/" + executableName,
+                    "/opt/homebrew/bin/" + executableName,
+                    home + "/.local/bin/" + executableName,
+                    home + "/.npm-global/bin/" + executableName,
+                    home + "/.nvm/current/bin/" + executableName
+            };
+        } else if (os.contains("win")) {
+            String appData = System.getenv("APPDATA");
+            possiblePaths = new String[]{
+                    (appData != null ? appData : "") + "\\npm\\" + executableName + ".cmd",
+                    "C:\\Program Files\\nodejs\\" + executableName + ".cmd",
+                    home + "\\AppData\\Roaming\\npm\\" + executableName + ".cmd"
+            };
+        } else {
+            possiblePaths = new String[]{
+                    "/usr/local/bin/" + executableName,
+                    "/usr/bin/" + executableName,
+                    home + "/.local/bin/" + executableName,
+                    home + "/.npm-global/bin/" + executableName
+            };
+        }
+
+        for (String path : possiblePaths) {
+            if (isExecutableFile(path)) {
+                return path;
+            }
+        }
+
+        return findExecutableOnPath(executableName, os);
+    }
+
+    private String findExecutableOnPath(String executableName, String os) {
+        try {
+            String lookupCmd = os.contains("win") ? "where" : "which";
+            ProcessBuilder pb = new ProcessBuilder(lookupCmd, executableName);
+            pb.redirectErrorStream(true);
+            CliEnvironmentUtil.ensureNodePath(pb);
+
+            Process process = pb.start();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    String candidate = line.trim();
+                    if (candidate.startsWith("\"") && candidate.endsWith("\"") && candidate.length() > 1) {
+                        candidate = candidate.substring(1, candidate.length() - 1);
+                    }
+                    if (isExecutableFile(candidate)) {
+                        return candidate;
+                    }
+                }
+            }
+            process.waitFor();
+        } catch (Exception ignored) {
+        }
+
+        return null;
+    }
+
+    private boolean isExecutableFile(String path) {
+        if (path == null || path.trim().isEmpty()) {
+            return false;
+        }
+        File file = new File(path.trim());
+        return file.exists() && file.canExecute();
+    }
+
+    private void testCodexConnection(JButton button) {
+        String path = codexPathField.getText().trim();
+        if (path.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "Please configure a path to the codex CLI binary.",
+                    "Configuration Required",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        if (!isExecutableFile(path)) {
+            JOptionPane.showMessageDialog(this,
+                    "The configured codex path does not exist or is not executable.",
+                    "Invalid Codex Path",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        button.setEnabled(false);
+        button.setText("Testing...");
+        codexStatusLabel.setText("Checking...");
+        codexStatusLabel.setForeground(Color.GRAY);
+
+        SwingWorker<String, Void> worker = new SwingWorker<>() {
+            @Override
+            protected String doInBackground() {
+                CodexClient client = new CodexClient(path,
+                        settingsManager.getModel(LLMProvider.CODEX));
+                return client.getVersion();
+            }
+
+            @Override
+            protected void done() {
+                button.setEnabled(true);
+                button.setText("Test Connection");
+                try {
+                    String version = get();
+                    if (version != null) {
+                        codexStatusLabel.setText("Connected - " + version);
+                        codexStatusLabel.setForeground(new Color(0, 150, 0));
+                        JOptionPane.showMessageDialog(LLMSettingsPanel.this,
+                                "Codex CLI detected!\n\n" + version,
+                                "Success",
+                                JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        codexStatusLabel.setText("Not connected - codex binary not working");
+                        codexStatusLabel.setForeground(new Color(200, 0, 0));
+                        JOptionPane.showMessageDialog(LLMSettingsPanel.this,
+                                "Failed to connect to Codex CLI.\n\n" +
+                                        "Make sure the path is correct and codex is properly installed.",
+                                "Error",
+                                JOptionPane.ERROR_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    codexStatusLabel.setText("Error: " + ex.getMessage());
+                    codexStatusLabel.setForeground(new Color(200, 0, 0));
+                    JOptionPane.showMessageDialog(LLMSettingsPanel.this,
+                            "Connection failed:\n" + ex.getMessage(),
+                            "Error",
+                            JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private void testConnection(LLMProvider provider, JButton button) {
+        if (!clientFactory.hasValidConfig(provider)) {
+            String message = switch (provider) {
+                case OLLAMA -> "Please enter a valid Ollama base URL.";
+                case BEDROCK -> "Please configure AWS credentials (settings, environment variables, or ~/.aws/credentials via AWS_DEFAULT_PROFILE or default).";
+                case CLAUDE_CODE -> "Please configure a valid path to the claude CLI binary.";
+                case CODEX -> "Please set a valid path to the codex CLI binary.";
+                case KIRO -> "Please set a valid path to the kiro-cli binary.";
+            };
+            JOptionPane.showMessageDialog(this,
+                    message,
+                    "Configuration Required",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        button.setEnabled(false);
+        button.setText("Testing...");
+
+        SwingWorker<LLMResponse, Void> worker = new SwingWorker<>() {
+            @Override
+            protected LLMResponse doInBackground() {
+                return clientFactory.createClient(provider).complete("Say OK", null);
+            }
+
+            @Override
+            protected void done() {
+                button.setEnabled(true);
+                button.setText("Test Connection");
+                try {
+                    LLMResponse response = get();
+                    if (response.isSuccess()) {
+                        JOptionPane.showMessageDialog(LLMSettingsPanel.this,
+                                "Connection successful!\n\nResponse: " +
+                                        (response.getContent().length() > 100 ?
+                                                response.getContent().substring(0, 100) + "..." :
+                                                response.getContent()),
+                                "Success",
+                                JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(LLMSettingsPanel.this,
+                                "Connection failed:\n" + response.getErrorMessage(),
+                                "Error",
+                                JOptionPane.ERROR_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(LLMSettingsPanel.this,
+                            "Connection failed:\n" + ex.getMessage(),
+                            "Error",
+                            JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    // Simple document listener helper
+    private static class SimpleDocumentListener implements javax.swing.event.DocumentListener {
+        private final Runnable action;
+
+        SimpleDocumentListener(Runnable action) {
+            this.action = action;
+        }
+
+        @Override
+        public void insertUpdate(javax.swing.event.DocumentEvent e) {
+            action.run();
+        }
+
+        @Override
+        public void removeUpdate(javax.swing.event.DocumentEvent e) {
+            action.run();
+        }
+
+        @Override
+        public void changedUpdate(javax.swing.event.DocumentEvent e) {
+            action.run();
+        }
+    }
+}
